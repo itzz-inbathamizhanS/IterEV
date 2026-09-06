@@ -1,0 +1,5 @@
+[
+  {"id":"01","name":"FASTEST","time":42,"cost":185,"energy":14.8,"feasibility":94,"after":58,"tomorrow":52},
+  {"id":"02","name":"FUTURE READY","time":48,"cost":172,"energy":13.9,"feasibility":98,"after":61,"tomorrow":57,"recommended":true},
+  {"id":"03","name":"BATTERY CARE","time":53,"cost":160,"energy":13.1,"feasibility":99,"after":64,"tomorrow":61}
+]

@@ -1,0 +1,7 @@
+[
+  {"name":"NORMAL","risk":2.1,"state":"LOW"},
+  {"name":"HIGH TRAFFIC","risk":5.4,"state":"WARNING"},
+  {"name":"HIGH TEMPERATURE","risk":7.8,"state":"WARNING"},
+  {"name":"CHARGER UNAVAILABLE","risk":12.6,"state":"HIGH"},
+  {"name":"HIGH FUTURE DEMAND","risk":14.2,"state":"CRITICAL"}
+]

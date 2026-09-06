@@ -1,0 +1,6 @@
+[
+  {"day":"TODAY","origin":"Coimbatore","destination":"Ooty","distance":88,"priority":"HIGH"},
+  {"day":"TOMORROW","origin":"Coimbatore","destination":"Chennai","distance":500,"priority":"CRITICAL"},
+  {"day":"DAY 3","origin":"Local","destination":"Mobility","distance":60,"priority":"NORMAL"},
+  {"day":"DAY 5","origin":"Coimbatore","destination":"Bangalore","distance":330,"priority":"HIGH"}
+]

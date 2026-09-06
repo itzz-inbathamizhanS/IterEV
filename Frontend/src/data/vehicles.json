@@ -1,0 +1,8 @@
+[
+  {"id":"EV-001","soc":78,"soh":94,"range":342,"temp":29,"capacity":92,"status":"ACTIVE","x":18,"y":22},
+  {"id":"EV-021","soc":43,"soh":76,"range":164,"temp":34,"capacity":62,"status":"PROTECT","x":54,"y":64},
+  {"id":"EV-009","soc":84,"soh":96,"range":368,"temp":28,"capacity":94,"status":"AVAILABLE","x":78,"y":30},
+  {"id":"EV-014","soc":61,"soh":88,"range":246,"temp":31,"capacity":81,"status":"CHARGING","x":34,"y":46},
+  {"id":"EV-006","soc":69,"soh":91,"range":289,"temp":30,"capacity":87,"status":"ACTIVE","x":68,"y":73},
+  {"id":"EV-018","soc":52,"soh":83,"range":201,"temp":36,"capacity":73,"status":"ACTIVE","x":88,"y":54}
+]
