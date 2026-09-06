@@ -28,8 +28,8 @@
 ## Phase 1C — Frontend Wiring (Pages.tsx)
 - [x] ConsumerPage: EVState inputs + useQuery routes + computed BatteryMemory + DecisionTrace
 - [x] FuturePage: useFutureTrips + wired Add Trip form + computed FMF display
-- [ ] RiskPage: wire risk timeline to computed values
-- [ ] SimulationPage: replace static table with API comparison
+- [x] RiskPage: wire risk timeline to computed values
+- [x] SimulationPage: replace static table with API comparison
 
 ## Phase 2 — Fleet Flow
 - [ ] engines/fleet_state_engine.py

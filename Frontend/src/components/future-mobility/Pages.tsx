@@ -280,7 +280,106 @@ export function FleetPage() {
  return <><PageTitle lines={["Your fleet"]} kicker="Operations intelligence"/><section className="grid grid-cols-2 border-b border-border lg:grid-cols-4">{[[24,"VEHICLES"],[18,"ACTIVE"],[4,"CHARGING"],[2,"AVAILABLE"]].map(([v,l],i)=><div key={String(l)} className={cn("px-5 py-12 sm:px-10",i>0&&"border-l border-border")}><p className="text-6xl font-light tabular-nums sm:text-8xl">{v}</p><Eyebrow className="mt-5">{l}</Eyebrow></div>)}</section><section className={`${section} grid gap-12 lg:grid-cols-[1.4fr_.6fr]`}><div className="relative min-h-[560px] border-y border-border bg-card"><Eyebrow className="absolute left-5 top-5">Spatial fleet / select vehicle</Eyebrow>{vehicles.map((v,i)=><button key={v.id} onClick={()=>setSelected(i)} className={cn("absolute w-24 p-2 text-left transition-all hover:scale-110",selected===i&&"bg-background")} style={{left:`${v.x}%`,top:`${v.y}%`,transform:"translate(-50%,-50%)"}}><VehicleSilhouette/><span className="text-[9px] tracking-[.12em]">{v.id} · {v.soc}%</span></button>)}</div><aside className="border-l border-border pl-7"><Eyebrow>Vehicle detail</Eyebrow><h2 className="mt-6 text-5xl font-light">{vehicle.id}</h2><div className="mt-10 grid grid-cols-2 gap-px bg-border">{[["SOC",vehicle.soc],["SOH",vehicle.soh],["FUTURE CAPACITY",vehicle.capacity],["TEMP",vehicle.temp]].map(([l,v])=><div className="bg-background p-5" key={String(l)}><Eyebrow>{l}</Eyebrow><p className="mt-4 text-3xl font-light">{v}{l==="TEMP"?"°C":"%"}</p></div>)}</div><p className={cn("mt-8 border-l-2 pl-4 text-sm font-semibold tracking-[.16em]",vehicle.status==="PROTECT"?"border-critical":"border-success")}>{vehicle.status}</p></aside></section><section className={`${section} grid gap-8 bg-foreground text-background sm:grid-cols-3`}><div><Eyebrow className="text-background/50">Future demand</Eyebrow><p className="mt-4 text-7xl font-light">{demand.day}</p></div><div><p className="text-8xl font-light">{demand.tasks}</p><Eyebrow className="text-background/50">Tasks</Eyebrow></div><div><p className="text-5xl font-light">+{demand.change}%</p><Eyebrow className="mt-2 text-background/50">Expected demand</Eyebrow><DemoLabel>{demand.label}</DemoLabel></div></section><section className={section}><h2 className={ruleTitle}>Today's assignment<br/><span className="text-muted-foreground">changes tomorrow's capacity.</span></h2></section></>;
 }
 
-export function RiskPage() { return <><PageTitle lines={["Future","mobility risk"]} kicker="Risk intelligence"/><section className={`${section} grid items-center gap-14 lg:grid-cols-2`}><div><p className="text-[clamp(8rem,18vw,16rem)] font-light leading-none">2.6<span className="text-3xl">%</span></p><Eyebrow>Future risk / low</Eyebrow><DemoLabel/></div><MobilityThread score={97}/></section><section className="border-y border-border"><div className="grid grid-cols-5">{[2.1,3.4,4.1,3.0,2.6].map((v,i)=><div key={i} className={cn("px-3 py-10 text-center",i>0&&"border-l border-border")}><p className="text-3xl font-light sm:text-5xl">{v}%</p><Eyebrow className="mt-5">{i===0?"TODAY":`DAY ${i+1}`}</Eyebrow></div>)}</div></section><section className={section}><Eyebrow>Scenario matrix</Eyebrow><div className="mt-8">{scenarios.map((s,i)=><div key={s.name} className="grid grid-cols-[1fr_auto_auto] items-center border-t border-border py-5"><span className="text-xs font-semibold tracking-[.14em]">{s.name}</span><span className="mr-8 text-3xl font-light">{s.risk}%</span><span className={cn("h-6 w-1",i===0?"bg-success":i<3?"bg-warning":"bg-critical")}/></div>)}</div></section><section className={`${section} bg-card`}><div className="grid items-center gap-10 lg:grid-cols-[1fr_auto_1fr]"><div><Eyebrow>Original decision</Eyebrow><p className="mt-8 text-7xl font-light">42 <span className="text-lg">MIN</span></p><p className="mt-4">Future risk <b className="text-critical">18.2%</b></p></div><ArrowDown className="size-8 lg:-rotate-90"/><div><Eyebrow>Recommended decision</Eyebrow><p className="mt-8 text-7xl font-light">48 <span className="text-lg">MIN</span></p><p className="mt-4">Future risk <b className="text-success">2.6%</b></p></div></div><div className="mt-20 grid gap-5 border-t border-border pt-8 lg:grid-cols-[.3fr_1fr]"><h3 className="text-4xl font-light">WHY?</h3><p className="max-w-3xl text-2xl font-light leading-10">The recommended decision slightly increases current travel time but substantially reduces predicted future mobility risk.</p></div></section><section className={`${section} grid grid-cols-2 gap-px bg-border sm:grid-cols-4`}>{["LOW","WARNING","HIGH","CRITICAL"].map((s,i)=><div className="bg-background p-6" key={s}><span className={cn("block h-1 w-10",i===0?"bg-success":i===1?"bg-warning":"bg-critical")}/><p className="mt-10 text-sm tracking-[.14em]">{s}</p></div>)}</section></> }
+export function RiskPage() {
+  const { evState } = useEvState();
+  const { trips } = useFutureTrips();
+
+  // Fetch computed feasibility + risk timeline from API
+  const { data: feasibility, isSuccess: feasLoaded } = useQuery({
+    queryKey: ["risk-feasibility", evState.soc, evState.soh, evState.capacity_kwh, trips.map(t => `${t.id}:${t.distance_km}`).join(",")],
+    queryFn: () => futureMobilityService.getFeasibility({ evState, futureTrips: trips }),
+    staleTime: 60_000,
+  });
+
+  // Fetch computed routes for the decision comparison section
+  const { data: computedRoutes } = useQuery({
+    queryKey: ["risk-routes", evState.soc, evState.soh, evState.temperature, evState.capacity_kwh, trips.map(t => `${t.id}:${t.distance_km}`).join(",")],
+    queryFn: () => routeService.getOptions({ evState, origin: "Coimbatore", destination: "Ooty", distance_km: 88, traffic: "Medium", futureTrips: trips }),
+    staleTime: 60_000,
+  });
+
+  const fmr = feasibility?.fmr ?? 2.6;
+  const fmf = feasibility?.fmf ?? 97.4;
+  const riskTimeline = feasibility?.risk_timeline ?? [2.1, 3.4, 4.1, 3.0, 2.6];
+  const isComputed = feasLoaded && (feasibility?.is_computed ?? false);
+  const riskLevel = fmr <= 5 ? "low" : fmr <= 15 ? "moderate" : fmr <= 30 ? "high" : "critical";
+
+  // Get fastest and recommended routes for comparison
+  const fastest = computedRoutes ? computedRoutes.reduce((a, b) => b.time < a.time ? b : a) : null;
+  const recommended = computedRoutes?.find(r => r.recommended) ?? null;
+  const fastestTime = fastest?.time ?? 42;
+  const fastestRisk = fastest?.fmr ?? 18.2;
+  const recTime = recommended?.time ?? 48;
+  const recRisk = recommended?.fmr ?? 2.6;
+
+  return <>
+    <PageTitle lines={["Future","mobility risk"]} kicker="Risk intelligence"/>
+    <section className={`${section} grid items-center gap-14 lg:grid-cols-2`}>
+      <div>
+        <p className="text-[clamp(8rem,18vw,16rem)] font-light leading-none">{fmr.toFixed(1)}<span className="text-3xl">%</span></p>
+        <Eyebrow>Future risk / {riskLevel}</Eyebrow>
+        {isComputed ? <span className="text-[9px] font-semibold tracking-[.16em] text-success">● LIVE RESULT</span> : <DemoLabel/>}
+      </div>
+      <MobilityThread score={Math.round(fmf)}/>
+    </section>
+
+    <section className="border-y border-border">
+      <div className="grid grid-cols-5">
+        {riskTimeline.map((v, i) => (
+          <div key={i} className={cn("px-3 py-10 text-center", i > 0 && "border-l border-border")}>
+            <p className="text-3xl font-light sm:text-5xl">{v}%</p>
+            <Eyebrow className="mt-5">{i === 0 ? "TODAY" : `DAY ${i + 1}`}</Eyebrow>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section className={section}>
+      <Eyebrow>Scenario matrix</Eyebrow>
+      <div className="mt-8">
+        {scenarios.map((s, i) => (
+          <div key={s.name} className="grid grid-cols-[1fr_auto_auto] items-center border-t border-border py-5">
+            <span className="text-xs font-semibold tracking-[.14em]">{s.name}</span>
+            <span className="mr-8 text-3xl font-light">{s.risk}%</span>
+            <span className={cn("h-6 w-1", i === 0 ? "bg-success" : i < 3 ? "bg-warning" : "bg-critical")}/>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section className={`${section} bg-card`}>
+      <div className="grid items-center gap-10 lg:grid-cols-[1fr_auto_1fr]">
+        <div>
+          <Eyebrow>Original decision</Eyebrow>
+          <p className="mt-8 text-7xl font-light">{fastestTime} <span className="text-lg">MIN</span></p>
+          <p className="mt-4">Future risk <b className="text-critical">{fastestRisk}%</b></p>
+        </div>
+        <ArrowDown className="size-8 lg:-rotate-90"/>
+        <div>
+          <Eyebrow>Recommended decision</Eyebrow>
+          <p className="mt-8 text-7xl font-light">{recTime} <span className="text-lg">MIN</span></p>
+          <p className="mt-4">Future risk <b className="text-success">{recRisk}%</b></p>
+        </div>
+      </div>
+      <div className="mt-20 grid gap-5 border-t border-border pt-8 lg:grid-cols-[.3fr_1fr]">
+        <h3 className="text-4xl font-light">WHY?</h3>
+        <p className="max-w-3xl text-2xl font-light leading-10">
+          {recommended?.explanation ?? "The recommended decision slightly increases current travel time but substantially reduces predicted future mobility risk."}
+        </p>
+      </div>
+      {isComputed ? <span className="mt-6 text-[9px] font-semibold tracking-[.16em] text-success">● LIVE RESULT</span> : <div className="mt-6"><DemoLabel/></div>}
+    </section>
+
+    <section className={`${section} grid grid-cols-2 gap-px bg-border sm:grid-cols-4`}>
+      {["LOW","WARNING","HIGH","CRITICAL"].map((s, i) => (
+        <div className="bg-background p-6" key={s}>
+          <span className={cn("block h-1 w-10", i === 0 ? "bg-success" : i === 1 ? "bg-warning" : "bg-critical")}/>
+          <p className="mt-10 text-sm tracking-[.14em]">{s}</p>
+        </div>
+      ))}
+    </section>
+  </>;
+}
 
 export function SimulationPage() {
   const [input, setInput] = useState<SimulationInput>({ mode:"Consumer", horizon:5, soh:94, temperature:29, traffic:"Medium", demand:"Medium", charging:"Normal", uncertainty:"Low" });
