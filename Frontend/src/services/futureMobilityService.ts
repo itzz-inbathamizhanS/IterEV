@@ -37,7 +37,7 @@ export type FeasibilityRequest = {
 };
 
 const API_BASE =
-  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_URL ??
+  (import.meta as unknown as { env: Record<string, string> }).env?.["VITE_API_URL"] ??
   "http://localhost:8000";
 
 const PRIORITY_W: Record<string, number> = { CRITICAL: 3, HIGH: 2, NORMAL: 1 };

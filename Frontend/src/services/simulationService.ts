@@ -56,7 +56,7 @@ export type SimulationResult = {
 };
 
 const API_BASE =
-  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_URL ??
+  (import.meta as unknown as { env: Record<string, string> }).env?.["VITE_API_URL"] ??
   "http://localhost:8000";
 
 const LEVEL: Record<string, number> = { Low: 0, Medium: 1, High: 2 };

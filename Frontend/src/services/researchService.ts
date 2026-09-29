@@ -1,5 +1,5 @@
 const API_BASE =
-  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_URL ??
+  (import.meta as unknown as { env: Record<string, string> }).env?.["VITE_API_URL"] ??
   "http://localhost:8000";
 
 export type ResearchResult<T> = {
