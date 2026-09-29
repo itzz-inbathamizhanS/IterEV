@@ -36,8 +36,9 @@ export type FeasibilityRequest = {
   soc_after_override?: number;
 };
 
-const API_BASE = (import.meta as unknown as { env: Record<string, string> }).env
-  ?.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_URL ??
+  "http://localhost:8000";
 
 const PRIORITY_W: Record<string, number> = { CRITICAL: 3, HIGH: 2, NORMAL: 1 };
 
@@ -52,7 +53,7 @@ function localFeasibility(req: FeasibilityRequest): FeasibilityResult {
     // Project SOC forward for future trips
     const projSoc = i === 0 ? soc : Math.max(0, soc * Math.pow(0.91, i));
     const energyNeeded = trip.distance_km / 6.0;
-    const socRequired = +(Math.min(95, (energyNeeded / usable) * 100 + 10)).toFixed(1);
+    const socRequired = +Math.min(95, (energyNeeded / usable) * 100 + 10).toFixed(1);
     const margin = +(projSoc - socRequired).toFixed(1);
     const feasible = margin >= 0;
     const w = PRIORITY_W[trip.priority] ?? 1;
@@ -76,12 +77,16 @@ function localFeasibility(req: FeasibilityRequest): FeasibilityResult {
   // 5-day risk timeline: project SOC declining 9%/day
   const riskTimeline = Array.from({ length: 5 }, (_, i) => {
     const projSoc = Math.max(0, soc * Math.pow(0.91, i));
-    const fmfDay = req.futureTrips.length === 0 ? 99.0 :
-      (req.futureTrips.filter((t) => {
-        const usableLocal = capacity_kwh * (soh / 100);
-        const socReq = Math.min(95, (t.distance_km / 6.0 / usableLocal) * 100 + 10);
-        return projSoc >= socReq;
-      }).length / req.futureTrips.length) * 100;
+    const fmfDay =
+      req.futureTrips.length === 0
+        ? 99.0
+        : (req.futureTrips.filter((t) => {
+            const usableLocal = capacity_kwh * (soh / 100);
+            const socReq = Math.min(95, (t.distance_km / 6.0 / usableLocal) * 100 + 10);
+            return projSoc >= socReq;
+          }).length /
+            req.futureTrips.length) *
+          100;
     return +(100 - fmfDay).toFixed(1);
   });
 
@@ -92,8 +97,7 @@ export const futureMobilityService = {
   // Legacy getter kept for backward compatibility
   getTrips: () => [],
 
-  label: (score: number): string =>
-    score >= 90 ? "FEASIBLE" : score >= 70 ? "WATCH" : "AT RISK",
+  label: (score: number): string => (score >= 90 ? "FEASIBLE" : score >= 70 ? "WATCH" : "AT RISK"),
 
   async getFeasibility(req: FeasibilityRequest): Promise<FeasibilityResult> {
     try {

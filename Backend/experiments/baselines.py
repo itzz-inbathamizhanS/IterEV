@@ -118,6 +118,9 @@ def run_baseline(
         })
 
     # Select route based on method objective
+    num_feasible = sum(1 for r in route_data if r["constraint_feasible"])
+    opt_status = "N/A"
+    
     if method == "FASTEST":
         chosen = min(route_data, key=lambda r: r["time"])
     elif method == "ENERGY_MIN":
@@ -145,6 +148,7 @@ def run_baseline(
         )
         
         chosen = next(r for r in route_data if r["id"] == rec_id)
+        opt_status = status
     else:
         chosen = route_data[0]
 
@@ -167,6 +171,10 @@ def run_baseline(
         "constraint_violations": 0 if chosen["constraint_feasible"] else 1,
         "total_scenarios": chosen["total_scenarios"],
         "computation_time_s": round(t_end - t_start, 4),
+        "optimizer_status": opt_status,
+        "constraint_relaxed": not chosen["constraint_feasible"],
+        "num_feasible_candidates": num_feasible,
+        "selected_route_fmr": chosen["fmr_prob"],
     }
 
 

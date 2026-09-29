@@ -55,8 +55,9 @@ export type SimulationResult = {
   scenario_count?: number;
 };
 
-const API_BASE = (import.meta as unknown as { env: Record<string, string> }).env
-  ?.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_URL ??
+  "http://localhost:8000";
 
 const LEVEL: Record<string, number> = { Low: 0, Medium: 1, High: 2 };
 
@@ -71,7 +72,17 @@ function localFallback(input: SimulationInput): SimulationResult {
   const uncertaintyPenalty = LEVEL[input.uncertainty]! * 2.1;
   const feasibility = Math.max(
     42,
-    Math.min(99.4, 79 + healthGain - heat * 0.22 - demandPenalty - trafficPenalty - chargePenalty - horizonPenalty - uncertaintyPenalty),
+    Math.min(
+      99.4,
+      79 +
+        healthGain -
+        heat * 0.22 -
+        demandPenalty -
+        trafficPenalty -
+        chargePenalty -
+        horizonPenalty -
+        uncertaintyPenalty,
+    ),
   );
   const primary: SimulationOutput = {
     feasibility: +feasibility.toFixed(1),
@@ -82,10 +93,16 @@ function localFallback(input: SimulationInput): SimulationResult {
   };
   // Approximate baseline comparison (local only, clearly demo)
   const comparison: MethodComparisonRow[] = [
-    { method: "FASTEST",      travelTime: 42, energy: 14.8, feasibility: 81.8, risk: 18.2 },
+    { method: "FASTEST", travelTime: 42, energy: 14.8, feasibility: 81.8, risk: 18.2 },
     { method: "ENERGY AWARE", travelTime: 51, energy: 12.9, feasibility: 91.2, risk: 8.8 },
-    { method: "BATTERY AWARE",travelTime: 55, energy: 13.2, feasibility: 95.1, risk: 4.9 },
-    { method: "PROPOSED",     travelTime: primary.travelTime, energy: primary.energy, feasibility: primary.feasibility, risk: primary.risk },
+    { method: "BATTERY AWARE", travelTime: 55, energy: 13.2, feasibility: 95.1, risk: 4.9 },
+    {
+      method: "PROPOSED",
+      travelTime: primary.travelTime,
+      energy: primary.energy,
+      feasibility: primary.feasibility,
+      risk: primary.risk,
+    },
   ];
   return { primary, comparison, is_computed: false };
 }

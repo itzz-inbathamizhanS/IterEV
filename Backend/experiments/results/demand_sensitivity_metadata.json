@@ -15,7 +15,7 @@
   "lambda_battery": 0.3,
   "mu_fmr": 0.5,
   "epsilon_fmr": 0.1,
-  "timestamp": "2026-09-30T00:45:02.890369",
+  "timestamp": "2026-09-30T00:50:46.872462",
   "rows": 16,
   "columns": [
     "method",
@@ -33,6 +33,10 @@
     "constraint_violations",
     "total_scenarios",
     "computation_time_s",
+    "optimizer_status",
+    "constraint_relaxed",
+    "num_feasible_candidates",
+    "selected_route_fmr",
     "demand"
   ],
   "model_version": "2.0.0-research"

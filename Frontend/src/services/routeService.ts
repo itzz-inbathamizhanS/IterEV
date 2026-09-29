@@ -13,16 +13,20 @@ import type { FutureTrip } from "@/hooks/useFutureTrips";
 export type RouteCandidate = {
   id: string;
   name: string;
-  time: number;         // minutes
-  cost: number;         // INR
-  energy: number;       // kWh (computed)
-  feasibility: number;  // FMF % (computed)
-  fmr: number;          // Future Mobility Risk %
-  after: number;        // SOC after trip (computed)
-  tomorrow: number;     // Projected SOC next day (computed)
+  time: number; // minutes
+  cost: number; // INR
+  energy: number; // kWh (computed)
+  feasibility: number; // FMF % (computed)
+  fmr: number; // Future Mobility Risk %
+  after: number; // SOC after trip (computed)
+  tomorrow: number; // Projected SOC next day (computed)
   recommended: boolean;
   explanation?: string;
   risk_change?: string;
+  fmr_ci_lower?: number;
+  fmr_ci_upper?: number;
+  total_scenarios?: number;
+  constraint_relaxed?: boolean;
   is_computed: boolean; // true = from engine; false = demo fallback
 };
 
@@ -35,8 +39,9 @@ export type ConsumerRoutesRequest = {
   futureTrips: FutureTrip[];
 };
 
-const API_BASE = (import.meta as unknown as { env: Record<string, string> }).env
-  ?.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_API_URL ??
+  "http://localhost:8000";
 
 export const routeService = {
   async getOptions(request: ConsumerRoutesRequest): Promise<RouteCandidate[]> {
@@ -65,7 +70,7 @@ const TIME_TRAFFIC: Record<string, Record<string, number>> = {
   "03": { Low: 0.92, Medium: 1.0, High: 1.14 },
 };
 const PROFILES = [
-  { id: "01", name: "FASTEST",      baseEnergy: 14.8, baseTime: 42, baseCost: 185 },
+  { id: "01", name: "FASTEST", baseEnergy: 14.8, baseTime: 42, baseCost: 185 },
   { id: "02", name: "FUTURE READY", baseEnergy: 13.9, baseTime: 48, baseCost: 172 },
   { id: "03", name: "BATTERY CARE", baseEnergy: 13.1, baseTime: 53, baseCost: 160 },
 ] as const;
@@ -108,14 +113,26 @@ function localFallback(req: ConsumerRoutesRequest): RouteCandidate[] {
     const fmf = computeLocalFmf(after, soh, req.futureTrips, capacity_kwh);
     const fmr = +(100 - fmf).toFixed(1);
     const timeAdj = Math.round(p.baseTime * (TIME_TRAFFIC[p.id]?.[traffic] ?? 1.0));
-    return { id: p.id, name: p.name, time: timeAdj, cost: p.baseCost, energy, feasibility: fmf, fmr, after, tomorrow, recommended: false, is_computed: false } as RouteCandidate;
+    return {
+      id: p.id,
+      name: p.name,
+      time: timeAdj,
+      cost: p.baseCost,
+      energy,
+      feasibility: fmf,
+      fmr,
+      after,
+      tomorrow,
+      recommended: false,
+      is_computed: false,
+    } as RouteCandidate;
   });
 
   // Simple optimizer: highest FMF with acceptable time trade-off
-  const best = candidates.reduce((a, b) => b.feasibility > a.feasibility ? b : a);
+  const best = candidates.reduce((a, b) => (b.feasibility > a.feasibility ? b : a));
   best.recommended = true;
 
-  const fastest = candidates.reduce((a, b) => b.time < a.time ? b : a);
+  const fastest = candidates.reduce((a, b) => (b.time < a.time ? b : a));
   if (best.id !== fastest.id) {
     const riskDiff = +(fastest.fmr - best.fmr).toFixed(1);
     const timeDiff = best.time - fastest.time;

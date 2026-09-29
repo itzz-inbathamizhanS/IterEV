@@ -421,6 +421,30 @@ class TestOptimizer:
         assert abs(s1.total_J - j1) < 1e-6
         assert abs(s2.total_J - j2) < 1e-6
 
+    def test_optimizer_enforces_epsilon(self):
+        from engines.optimizer import select_recommended
+        from models.schemas import RouteCandidate
+        # R1 is feasible (5% <= 10%), R2 is not (15% > 10%)
+        # R2 has much lower cost and better SOC, but violates epsilon
+        c1 = RouteCandidate(id="1", name="R1", time=100.0, cost=100.0, energy=20.0, feasibility=95.0, fmr=5.0, after=20.0, tomorrow=15.0, recommended=False)
+        c2 = RouteCandidate(id="2", name="R2", time=10.0, cost=10.0, energy=2.0, feasibility=85.0, fmr=15.0, after=90.0, tomorrow=85.0, recommended=False)
+        
+        rec_id, scores, status = select_recommended([c1, c2], epsilon_fmr=0.10)
+        assert rec_id == "1", "Optimizer must select feasible route even if it has worse cost"
+        assert status == "FEASIBLE"
+
+    def test_optimizer_fallback_constraint_relaxed(self):
+        from engines.optimizer import select_recommended
+        from models.schemas import RouteCandidate
+        # Both violate epsilon=10%
+        c1 = RouteCandidate(id="1", name="R1", time=100.0, cost=100.0, energy=20.0, feasibility=80.0, fmr=20.0, after=20.0, tomorrow=15.0, recommended=False)
+        c2 = RouteCandidate(id="2", name="R2", time=10.0, cost=10.0, energy=2.0, feasibility=85.0, fmr=15.0, after=90.0, tomorrow=85.0, recommended=False)
+        
+        rec_id, scores, status = select_recommended([c1, c2], epsilon_fmr=0.10)
+        assert status == "NO_FEASIBLE_ACTION", "Status must report no feasible action"
+        # It should fallback to the one with the minimum FMR (c2 has FMR 15.0 < 20.0)
+        assert rec_id == "2", "Fallback should select the safest route"
+
 
 # ─── Integration Tests ─────────────────────────────────────────────────────
 

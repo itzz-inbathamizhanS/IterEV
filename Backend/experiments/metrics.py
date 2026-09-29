@@ -30,6 +30,10 @@ def compute_metrics(result: dict) -> dict:
         "constraint_violations": result.get("constraint_violations", 0),
         "total_scenarios": result.get("total_scenarios", 0),
         "computation_time_s": result.get("computation_time_s", 0.0),
+        "optimizer_status": result.get("optimizer_status", "N/A"),
+        "constraint_relaxed": result.get("constraint_relaxed", False),
+        "num_feasible_candidates": result.get("num_feasible_candidates", 0),
+        "selected_route_fmr": result.get("selected_route_fmr", 0.0),
     }
 
 

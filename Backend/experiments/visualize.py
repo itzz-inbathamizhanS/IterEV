@@ -50,22 +50,23 @@ def _load(name: str) -> pd.DataFrame | None:
 
 
 def plot_baseline_comparison():
-    df = _load("baseline_comparison")
-    if df is None:
-        return
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5))
-    metrics = [("travel_time", "Travel Time (min)"), ("energy_consumption", "Energy (kWh)"),
-               ("fmr", "FMR (%)"), ("future_success_rate", "Future Success (%)")]
-    for ax, (col, label) in zip(axes, metrics):
-        colors = [METHOD_COLORS.get(m, "#666") for m in df["method"]]
-        ax.bar(df["method"], df[col], color=colors, edgecolor="white", linewidth=0.5)
-        ax.set_ylabel(label)
-        ax.tick_params(axis="x", rotation=25)
-    fig.suptitle("Baseline Method Comparison", fontweight="bold", y=1.02)
-    fig.tight_layout()
-    fig.savefig(FIGURES_DIR / "baseline_comparison.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print("  ✓ baseline_comparison.png")
+    for scenario in ["stress_baseline", "constraint_feasible"]:
+        df = _load(f"baseline_comparison_{scenario}")
+        if df is None:
+            continue
+        fig, axes = plt.subplots(1, 4, figsize=(16, 4.5))
+        metrics = [("travel_time", "Travel Time (min)"), ("energy_consumption", "Energy (kWh)"),
+                   ("fmr", "FMR (%)"), ("future_success_rate", "Future Success (%)")]
+        for ax, (col, label) in zip(axes, metrics):
+            colors = [METHOD_COLORS.get(m, "#666") for m in df["method"]]
+            ax.bar(df["method"], df[col], color=colors, edgecolor="white", linewidth=0.5)
+            ax.set_ylabel(label)
+            ax.tick_params(axis="x", rotation=25)
+        fig.suptitle(f"Baseline Method Comparison - {scenario.upper()}", fontweight="bold", y=1.02)
+        fig.tight_layout()
+        fig.savefig(FIGURES_DIR / f"baseline_comparison_{scenario}.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"  ✓ baseline_comparison_{scenario}.png")
 
 
 def plot_sensitivity(name: str, x_col: str, x_label: str, title: str):

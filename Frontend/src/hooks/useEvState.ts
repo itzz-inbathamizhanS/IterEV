@@ -10,11 +10,11 @@ import { useState, useEffect } from "react";
 
 export type EVState = {
   vehicle_id: string;
-  soc: number;         // State of Charge (%)
-  soh: number;         // State of Health (%)
+  soc: number; // State of Charge (%)
+  soh: number; // State of Health (%)
   temperature: number; // Battery temperature (°C)
-  capacity_kwh: number;// Nominal battery capacity (kWh)
-  efficiency: number;  // Baseline efficiency (km/kWh)
+  capacity_kwh: number; // Nominal battery capacity (kWh)
+  efficiency: number; // Baseline efficiency (km/kWh)
 };
 
 export const DEFAULT_EV_STATE: EVState = {
@@ -57,10 +57,7 @@ export function useEvState() {
 
   /** Estimated current range based on SOC, SOH, capacity, efficiency */
   const rangeKm = Math.round(
-    (evState.soc / 100) *
-      evState.capacity_kwh *
-      (evState.soh / 100) *
-      evState.efficiency,
+    (evState.soc / 100) * evState.capacity_kwh * (evState.soh / 100) * evState.efficiency,
   );
 
   return { evState, updateEvState, resetEvState, rangeKm };

@@ -51,23 +51,44 @@ def _save_results(df: pd.DataFrame, name: str, metadata: dict):
 
 
 def run_baseline_comparison(quick: bool = False):
-    """Experiment 1: Compare all 4 methods on the same scenario."""
+    """Experiment 1: Compare all 4 methods on two distinct scenarios."""
     print("\n=== Experiment 1: Baseline Comparison ===")
-    config = ExperimentConfig(
-        name="baseline_comparison",
-        scenario_count=500 if quick else 5000,
-    )
+    
+    scenarios = {
+        "STRESS_BASELINE": ExperimentConfig(
+            name="STRESS_BASELINE",
+            scenario_count=500 if quick else 5000,
+            # Inherits tough defaults: soc=80, soh=100, demand=Medium, charging=1.0, uncertainty=Medium
+        ),
+        "CONSTRAINT_FEASIBLE": ExperimentConfig(
+            name="CONSTRAINT_FEASIBLE",
+            scenario_count=500 if quick else 5000,
+            soc_initial=100,         # Max SOC
+            soh=100,                 # Perfect SOH
+            demand="Low",            # Lower future demand
+            charging_availability=1.0,
+            uncertainty="Low",       # Less noise
+            planning_horizon=3,      # Shorter horizon
+        )
+    }
 
-    rows = []
-    for method in METHODS:
-        result = run_baseline(method, config)
-        metrics = compute_metrics(result)
-        rows.append(metrics)
-        print(f"  Running {method}... FMR={result['fmr']:.2f}%, time={result['computation_time_s']:.2f}s")
-
-    df = pd.DataFrame(rows)
-    _save_results(df, "baseline_comparison", config.to_dict())
-    return df
+    for scenario_name, config in scenarios.items():
+        print(f"\n  -- Scenario: {scenario_name} --")
+        rows = []
+        for method in METHODS:
+            result = run_baseline(method, config)
+            metrics = compute_metrics(result)
+            metrics["scenario_type"] = scenario_name
+            # The metrics output automatically includes optimizer_status, constraint_relaxed, num_feasible_candidates, selected_route_fmr
+            rows.append(metrics)
+            print(f"    Running {method}...")
+            print(f"      Selected Route FMR: {result['fmr']:.2f}%")
+            print(f"      Optimizer Status: {result.get('optimizer_status', 'N/A')}")
+            print(f"      Constraint Relaxed: {result.get('constraint_relaxed', 'N/A')}")
+            print(f"      Num Feasible Cands: {result.get('num_feasible_candidates', 'N/A')}")
+        
+        df = pd.DataFrame(rows)
+        _save_results(df, f"baseline_comparison_{scenario_name.lower()}", config.to_dict())
 
 
 def run_sensitivity(param_name: str, values: list, config_key: str, quick: bool = False):

@@ -1,22 +1,22 @@
 {
-  "name": "temperature_sensitivity",
+  "name": "CONSTRAINT_FEASIBLE",
   "scenario_count": 5000,
   "random_seed": 42,
-  "soc_initial": 78.0,
-  "soh": 94.0,
+  "soc_initial": 100,
+  "soh": 100,
   "temperature": 29.0,
   "traffic": "Medium",
-  "demand": "Medium",
-  "uncertainty": "Medium",
-  "charging_availability": 0.95,
-  "planning_horizon": 5,
+  "demand": "Low",
+  "uncertainty": "Low",
+  "charging_availability": 1.0,
+  "planning_horizon": 3,
   "capacity_kwh": 80.0,
   "efficiency": 6.0,
   "lambda_battery": 0.3,
   "mu_fmr": 0.5,
   "epsilon_fmr": 0.1,
-  "timestamp": "2026-09-30T00:50:46.488025",
-  "rows": 28,
+  "timestamp": "2026-09-30T00:50:44.728653",
+  "rows": 4,
   "columns": [
     "method",
     "travel_time",
@@ -37,7 +37,7 @@
     "constraint_relaxed",
     "num_feasible_candidates",
     "selected_route_fmr",
-    "temperature"
+    "scenario_type"
   ],
   "model_version": "2.0.0-research"
 }
