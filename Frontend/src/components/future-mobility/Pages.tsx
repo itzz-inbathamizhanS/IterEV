@@ -1380,6 +1380,8 @@ const architectureNodes = [
 ];
 
 export function ResearchPage() {
+  const [activeTab, setActiveTab] = useState("Baseline Comparison");
+
   return (
     <>
       <PageTitle
@@ -1469,115 +1471,133 @@ export function ResearchPage() {
 
         <div className="mt-8 overflow-x-auto pb-4">
           <div className="flex gap-4 min-w-[600px] text-xs font-semibold tracking-[.15em] text-muted-foreground uppercase">
-            <span className="text-foreground pb-2 border-b-2 border-foreground cursor-pointer">
-              Baseline Comparison
-            </span>
-            <span className="pb-2 cursor-pointer hover:text-foreground">Independent Replication</span>
-            <span className="pb-2 cursor-pointer hover:text-foreground">Ablation</span>
-            <span className="pb-2 cursor-pointer hover:text-foreground">Risk Decomposition</span>
-            <span className="pb-2 cursor-pointer hover:text-foreground">Sensitivity</span>
-            <span className="pb-2 cursor-pointer hover:text-foreground">Monotonicity</span>
-            <span className="pb-2 cursor-pointer hover:text-foreground">Convergence</span>
+            {["Baseline Comparison", "Independent Replication", "Ablation", "Risk Decomposition", "Sensitivity", "Monotonicity", "Convergence"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "pb-2 transition-colors",
+                  activeTab === tab ? "text-foreground border-b-2 border-foreground" : "hover:text-foreground cursor-pointer"
+                )}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Baseline Comparison (Demo View) */}
-        <div className="mt-12">
-          <h3 className="text-2xl font-light mb-6">Constraint Feasible Scenario</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] border-collapse text-left">
-              <thead>
-                <tr>
-                  {["METHOD", "TIME", "ENERGY", "FMR", "STATUS"].map((h) => (
-                    <th
-                      key={h}
-                      className="border-y border-border py-4 text-[9px] tracking-[.14em] text-muted-foreground uppercase"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="hover:bg-card transition-colors">
-                  <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                    FASTEST
-                  </td>
-                  <td className="border-b border-border py-5 text-sm">31 min</td>
-                  <td className="border-b border-border py-5 text-sm">14.2 kWh</td>
-                  <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
-                  <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
-                    FEASIBLE
-                  </td>
-                </tr>
-                <tr className="hover:bg-card transition-colors">
-                  <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                    ENERGY_MIN
-                  </td>
-                  <td className="border-b border-border py-5 text-sm">36 min</td>
-                  <td className="border-b border-border py-5 text-sm">12.9 kWh</td>
-                  <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
-                  <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
-                    FEASIBLE
-                  </td>
-                </tr>
-                <tr className="bg-card">
-                  <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                    ITEREV
-                  </td>
-                  <td className="border-b border-border py-5 text-sm">33 min</td>
-                  <td className="border-b border-border py-5 text-sm">13.5 kWh</td>
-                  <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
-                  <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
-                    FEASIBLE
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+        {activeTab === "Baseline Comparison" && (
+          <div className="mt-12 animate-in fade-in duration-500">
+            <h3 className="text-2xl font-light mb-6">Constraint Feasible Scenario</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] border-collapse text-left">
+                <thead>
+                  <tr>
+                    {["METHOD", "TIME", "ENERGY", "FMR", "STATUS"].map((h) => (
+                      <th
+                        key={h}
+                        className="border-y border-border py-4 text-[9px] tracking-[.14em] text-muted-foreground uppercase"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="hover:bg-card transition-colors">
+                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
+                      FASTEST
+                    </td>
+                    <td className="border-b border-border py-5 text-sm">31 min</td>
+                    <td className="border-b border-border py-5 text-sm">14.2 kWh</td>
+                    <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
+                    <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
+                      FEASIBLE
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-card transition-colors">
+                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
+                      ENERGY_MIN
+                    </td>
+                    <td className="border-b border-border py-5 text-sm">36 min</td>
+                    <td className="border-b border-border py-5 text-sm">12.9 kWh</td>
+                    <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
+                    <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
+                      FEASIBLE
+                    </td>
+                  </tr>
+                  <tr className="bg-card">
+                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
+                      ITEREV
+                    </td>
+                    <td className="border-b border-border py-5 text-sm">33 min</td>
+                    <td className="border-b border-border py-5 text-sm">13.5 kWh</td>
+                    <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
+                    <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
+                      FEASIBLE
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-          <h3 className="text-2xl font-light mt-16 mb-6">Stress Scenario</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] border-collapse text-left">
-              <thead>
-                <tr>
-                  {["METHOD", "TIME", "ENERGY", "FMR", "STATUS"].map((h) => (
-                    <th
-                      key={h}
-                      className="border-y border-border py-4 text-[9px] tracking-[.14em] text-muted-foreground uppercase"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="hover:bg-card transition-colors">
-                  <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                    FASTEST
-                  </td>
-                  <td className="border-b border-border py-5 text-sm">31 min</td>
-                  <td className="border-b border-border py-5 text-sm">14.2 kWh</td>
-                  <td className="border-b border-border py-5 text-sm text-amber-500">43.1%</td>
-                  <td className="border-b border-border py-5 text-xs tracking-widest text-amber-500">
-                    NO FEASIBLE ACTION
-                  </td>
-                </tr>
-                <tr className="bg-card">
-                  <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                    ITEREV
-                  </td>
-                  <td className="border-b border-border py-5 text-sm">36 min</td>
-                  <td className="border-b border-border py-5 text-sm">12.9 kWh</td>
-                  <td className="border-b border-border py-5 text-sm text-amber-500">42.2%</td>
-                  <td className="border-b border-border py-5 text-xs tracking-widest text-amber-500">
-                    NO FEASIBLE ACTION
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <h3 className="text-2xl font-light mt-16 mb-6">Stress Scenario</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] border-collapse text-left">
+                <thead>
+                  <tr>
+                    {["METHOD", "TIME", "ENERGY", "FMR", "STATUS"].map((h) => (
+                      <th
+                        key={h}
+                        className="border-y border-border py-4 text-[9px] tracking-[.14em] text-muted-foreground uppercase"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="hover:bg-card transition-colors">
+                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
+                      FASTEST
+                    </td>
+                    <td className="border-b border-border py-5 text-sm">31 min</td>
+                    <td className="border-b border-border py-5 text-sm">14.2 kWh</td>
+                    <td className="border-b border-border py-5 text-sm text-amber-500">43.1%</td>
+                    <td className="border-b border-border py-5 text-xs tracking-widest text-amber-500">
+                      NO FEASIBLE ACTION
+                    </td>
+                  </tr>
+                  <tr className="bg-card">
+                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
+                      ITEREV
+                    </td>
+                    <td className="border-b border-border py-5 text-sm">36 min</td>
+                    <td className="border-b border-border py-5 text-sm">12.9 kWh</td>
+                    <td className="border-b border-border py-5 text-sm text-amber-500">42.2%</td>
+                    <td className="border-b border-border py-5 text-xs tracking-widest text-amber-500">
+                      NO FEASIBLE ACTION
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
+
+        {activeTab !== "Baseline Comparison" && (
+          <div className="mt-12 p-12 border border-border bg-card flex flex-col items-center justify-center min-h-[400px] text-center animate-in fade-in duration-500">
+            <Eyebrow className="mb-4">Data pipeline sync required</Eyebrow>
+            <h3 className="text-3xl font-light mb-6 uppercase tracking-wider">{activeTab}</h3>
+            <p className="text-muted-foreground max-w-lg leading-relaxed text-sm">
+              The frontend requires the latest JSON manifest from the Python backend to render the 
+              {activeTab.toLowerCase()} visualization.
+              <br /><br />
+              Run the full experiment suite via CLI: <br />
+              <code className="text-xs bg-background px-2 py-1 mt-4 inline-block tracking-widest border border-border">python -m experiments.runner</code>
+            </p>
+          </div>
+        )}
       </section>
 
       <section className={`${section} grid gap-12 lg:grid-cols-[.4fr_1fr] border-t border-border`}>
