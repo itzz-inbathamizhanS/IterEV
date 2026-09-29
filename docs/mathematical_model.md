@@ -1,135 +1,186 @@
-# IterEV — Mathematical Model Documentation
+# IterEV — Mathematical Model & Experimental Protocol
 
-## 1. Energy Model
+## 1. State Variables
 
-Energy consumption for route `r` under conditions `(traffic, temperature, SOH)`:
+The EV state at time t:
 
 ```
-E(r) = E_base(r) × f_traffic × f_temperature × f_SOH
+x_t = [SOC_t, SOH_t, T_t, C_t]
 ```
 
-Where:
-- `E_base(r)` — calibrated base energy at standard conditions (kWh)
+Where SOC = state of charge (%), SOH = state of health (%), T = temperature (°C), C = usable capacity (kWh).
+
+## 2. Energy Model
+
+Energy consumption for route r under conditions:
+
+```
+E(r) = E_base(r) × f_traffic × f_temperature × f_SOH × ε_energy
+```
+
 - `f_traffic = TRAFFIC_FACTORS[traffic]` — {Low: 0.88, Medium: 1.00, High: 1.20}
-- `f_temperature = 1.0 + (T - T_baseline) × 0.008`
-- `f_SOH = 1.0 + max(0, SOH_baseline - SOH) × 0.002`
+- `f_temperature = 1.0 + (T - 29°C) × 0.008`
+- `f_SOH = 1.0 + max(0, 94 - SOH) × 0.002`
+- `ε_energy ~ Normal(1.0, σ)` — prediction uncertainty
 
-**Implementation:** `engines/energy_engine.py::predict_energy()`
+## 3. SOC State Transition
 
-## 2. Battery State Transition
-
-### SOC Transition
-
-```
-SOC_{t+1} = SOC_t - (E_route / C_usable) × 100
-C_usable = C_nominal × (SOH / 100)
-```
-
-### Overnight/Standby SOC Loss
+After a trip consuming E kWh:
 
 ```
-SOC_{next_day} = SOC_current - DAILY_STANDBY_LOSS_PCT
+SOC_{t+1} = SOC_t - (E / C_usable) × 100
 ```
 
-Default: 5% aggregate standby consumption per day (self-discharge + vehicle standby + auxiliary loads).
-
-**Implementation:** `engines/battery_engine.py::compute_soc_after()`, `estimate_tomorrow_soc()`
-
-## 3. Battery Health Degradation
-
-Reduced-order proxy model (NOT electrochemical):
+After charging:
 
 ```
-ΔSOH = base_rate × throughput_factor × temp_factor × dod_factor × crate_factor × noise
+SOC_{t+1} = min(95, SOC_t + (E_charged / C_usable) × 100)
 ```
 
-Where:
-- `throughput_factor = E_throughput / C_usable` — normalized energy throughput
-- `temp_factor = 1.0 + 0.06 × |T - 25°C|` — Arrhenius-inspired temperature acceleration
-- `dod_factor = max(DoD, 0.01)^1.2` — depth of discharge power-law
-- `crate_factor = 1.0 + 0.3 × max(0, C_rate - 1.0)` — high-power charging penalty
+After standby (per day):
 
-Then: `SOH_{t+1} = SOH_t - ΔSOH`
+```
+SOC_{t+1} = SOC_t - 5.0
+```
 
-**Literature basis:**
-- Xu et al. (2018), Journal of Power Sources — throughput dependence
-- Petit et al. (2016), Applied Energy — empirical aging model
-- Pelletier et al. (2017), Transportation Research Part B — degradation review
+Where `C_usable = C_nominal × (SOH / 100)`.
 
-**Implementation:** `engines/battery_engine.py::compute_soh_degradation()`
+## 4. SOH Degradation Model
 
-## 4. Future Mobility Risk (FMR)
+Reduced-order proxy (NOT electrochemical):
+
+```
+ΔSOH = base_rate × throughput × temp_factor × dod_factor × crate_factor × ε_degradation
+```
+
+- `throughput = E / C_usable`
+- `temp_factor = 1.0 + 0.06 × |T - 25°C|`
+- `dod_factor = max(DoD, 0.01)^1.2`
+- `crate_factor = 1.0 + 0.3 × max(0, C_rate - 1.0)`
+- `ε_degradation ~ Normal(1.0, 0.05)` — degradation uncertainty
+
+```
+SOH_{t+1} = SOH_t - ΔSOH_t
+```
+
+SOH degradation → usable capacity decreases → same trip requires larger SOC fraction → future feasibility changes. This causal chain is explicitly implemented.
+
+## 5. Future Mobility Risk (FMR)
 
 ### Definition
 
 ```
-FMR(a) = P[I_future(a, ω) = 0]
+FMR(a) = P[at least one future trip infeasible | action a]
 ```
-
-Where `I_future(a, ω) = 1` if all required future trips can be completed under scenario `ω`, else 0.
 
 ### Monte Carlo Estimation
 
-For each candidate action `a`:
+For each candidate action a, generate N scenarios (ω₁...ωₙ):
 
-1. Generate N future scenarios by sampling:
-   - Energy multiplier: `ε ~ Normal(1.0, σ)`, clipped to [0.7, 1.5]
-   - Temperature offset: `δT ~ Normal(0, σ_T)`
-   - Traffic: categorical from `{Low, Medium, High}` with configurable probabilities
-   - Demand multiplier: scaled by demand level with ±10% noise
-   - Charging availability: `Bernoulli(p_charging)` per day
-   - Degradation noise: `Normal(1.0, 0.05)`, clipped to [0.8, 1.2]
+**Day-by-day state propagation (corrected implementation):**
 
-2. For each scenario, propagate battery state day-by-day through the planning horizon
+```
+For each scenario s = 1..N:
+  For each day d = 0..horizon:
+    1. If trip scheduled on day d:
+       a. Compute trip energy: E = (distance × demand_mult × combined_factor) / efficiency
+       b. Compute SOC required: SOC_req = (E / C_usable) × 100 + buffer
+       c. Check feasibility: SOC_available ≥ SOC_req
+       d. If feasible → SOC = SOC - (E / C_usable) × 100  [STATE CHANGE]
+       e. If infeasible → scenario_failed = True, continue for diagnostics
+       f. Compute ΔSOH from trip, update SOH                [STATE CHANGE]
+    2. If charger available (Bernoulli(p)):
+       a. Compute charging energy: E_charge = P_charger × t × η
+       b. SOC = min(95, SOC + (E_charge / C_usable) × 100) [STATE CHANGE]
+       c. Compute ΔSOH from charging, update SOH            [STATE CHANGE]
+    3. Apply standby loss: SOC = SOC - 5%
+    4. Clamp SOC to [0, 100]
+```
 
-3. For each future trip at its scheduled day, check:
-   - Short trip: `SOC_available ≥ (distance / efficiency_effective) / C_usable × 100 + buffer`
-   - Long trip: `SOC_available ≥ departure_minimum AND charger_available`
+```
+FMR(a) = N_failed / N_total
+```
 
-4. A scenario fails if ANY required trip is infeasible
+### Failure Definition
 
-5. Compute: `FMR(a) = failed_scenarios / total_scenarios`
+A scenario fails if at least one mandatory future trip cannot be completed while respecting the minimum SOC reserve (5%).
 
 ### Confidence Interval
 
-Wilson score interval (better coverage than Wald for extreme proportions):
+Wilson score interval for binomial proportion p = k/n:
 
 ```
-p̂ ± z × √(p̂(1-p̂)/n + z²/4n²) / (1 + z²/n)
+center = (p̂ + z²/2n) / (1 + z²/n)
+spread = z × √(p̂(1-p̂)/n + z²/4n²) / (1 + z²/n)
+CI = [center - spread, center + spread]
 ```
 
-**Implementation:** `engines/feasibility_engine.py::compute_probabilistic_fmr()`
-
-## 5. Optimization
+## 6. Optimization
 
 ```
-min_a  J(a) = CurrentCost(a) + λ·BatteryConsequence(a) + μ·FMR(a)
-subject to: FMR(a) ≤ ε
+min_a J(a) = 0.5·Cost_norm(a) + 0.30·Battery_norm(a) + 0.50·FMR_norm(a)
+subject to: FMR(a) ≤ 0.10
 ```
 
-Where:
-- `CurrentCost(a)` — normalized weighted sum of travel time and monetary cost
-- `BatteryConsequence(a) = 1 - normalize(SOC_after)` — inverted SOC retention
-- `FMR(a)` — normalized probabilistic future mobility risk
-- `λ = 0.30` (default), `μ = 0.50` (default), `ε = 0.10` (default)
+All objectives min-max normalized to [0, 1].
 
-All objectives are min-max normalized to [0, 1] before weighting.
+**No-feasible-action fallback:** If all candidates have FMR > ε, select the one with minimum FMR and return `constraint_relaxed = true`.
 
-**No-feasible-action case:** If all candidates have FMR > ε, the optimizer returns `status = "NO_FEASIBLE_ACTION"` with the minimum-FMR candidate and `constraint_relaxed = true`.
+## 7. Uncertainty Sources
 
-**Implementation:** `engines/optimizer.py::select_recommended()`
+| Variable | Distribution | Ablation Flag |
+|----------|-------------|---------------|
+| Energy consumption | Normal(1.0, σ) | `use_energy_uncertainty` |
+| Temperature | Normal(0, σ_T) | `use_temperature_uncertainty` |
+| Traffic | Categorical(p_low, p_med, p_high) | `use_traffic_uncertainty` |
+| Future demand | Normal(base_mult, 0.10) per day | `use_demand_uncertainty` |
+| Charger availability | Bernoulli(p) per day | `use_charging_uncertainty` |
+| Degradation | Normal(1.0, 0.05) per event | `use_degradation_uncertainty` |
 
-## 6. Baseline Methods
+## 8. Baseline Methods
 
-All baselines use the same physical engines — only the selection criterion differs:
+| Method | Objective | Same scenarios? |
+|--------|-----------|----------------|
+| FASTEST | min travel_time | Yes (common RNG) |
+| ENERGY_MIN | min energy | Yes |
+| BATTERY_AWARE | max SOC_after | Yes |
+| ITEREV | min J(a) s.t. FMR ≤ ε | Yes |
 
-| Method | Objective |
-|--------|-----------|
-| FASTEST | `min travel_time` |
-| ENERGY_MIN | `min energy_consumption` |
-| BATTERY_AWARE | `max SOC_after` |
-| ITEREV | `min J(a) s.t. FMR(a) ≤ ε` |
+All methods receive equivalent information. Only the decision criterion changes.
 
-No data leakage: all methods receive equivalent information at decision time.
+## 9. Experimental Protocol
 
-**Implementation:** `experiments/baselines.py`
+### Estimation Phase
+- Seed: 42, N: 5000
+- Used for FMR estimation and decision making
+
+### Independent Validation Phase
+- Seed: 4242, N: 20000
+- NEVER used for estimation
+- Used to compute observed failure rate
+- Comparison: predicted FMR vs observed failure rate
+
+### Ablation Design
+Each variant uses `AblationFlags` to EXPLICITLY DISABLE (not reduce) the component:
+
+| Variant | What is disabled |
+|---------|-----------------|
+| A0: Full IterEV | Nothing |
+| A1: No Future Risk | FMR weight = 0 in optimizer |
+| A2: No Battery Degradation | SOH does not change |
+| A3: No Energy/Env Uncertainty | Energy, temperature, traffic deterministic |
+| A4: No Demand Uncertainty | Demand multipliers fixed |
+| A5: No Charging Uncertainty | Charger always/never available |
+| A6: No Degradation Uncertainty | Degradation noise = 1.0 |
+
+All variants use same seed, same scenario base, same routes. Only intended component changes.
+
+## 10. Limitations
+
+1. Route profiles are research-scenario-specific (Coimbatore→Ooty), not real-time routing
+2. Battery degradation is a reduced-order proxy, not electrochemical simulation
+3. Charging model is energy-balance, not CC/CV curve
+4. Overnight SOC loss (5%) is aggregate standby consumption, not pure self-discharge
+5. No real-time traffic/weather API — uses statistical distributions
+6. Fleet module is prototype only
+7. Uncertainty distribution parameters are documented but not vehicle-specific

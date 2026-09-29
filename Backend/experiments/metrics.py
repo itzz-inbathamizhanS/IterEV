@@ -15,18 +15,20 @@ def compute_metrics(result: dict) -> dict:
         Dict with all standardized metric fields.
     """
     return {
+        "method": result.get("method", ""),
         "travel_time": result.get("travel_time", 0),
         "energy_consumption": result.get("energy", 0),
         "monetary_cost": result.get("cost", 0),
-        "battery_degradation": result.get("soh_loss", 0),
-        "final_soh": round(100.0 - result.get("soh_loss", 0) * 100, 4)
-            if result.get("soh_loss", 0) < 1 else round(100.0 - result.get("soh_loss", 0), 4),
+        "soc_after": result.get("soc_after", 0),
+        "soh_loss": result.get("soh_loss", 0),
         "future_success_rate": result.get("future_success_rate", 100.0),
         "fmf": result.get("fmf", 99.0),
         "fmr": result.get("fmr", 1.0),
         "fmr_ci_lower": result.get("fmr_ci_lower", 0.0),
         "fmr_ci_upper": result.get("fmr_ci_upper", 0.0),
-        "constraint_violation_rate": 1.0 if result.get("constraint_violations", 0) > 0 else 0.0,
+        "constraint_feasible": result.get("constraint_feasible", True),
+        "constraint_violations": result.get("constraint_violations", 0),
+        "total_scenarios": result.get("total_scenarios", 0),
         "computation_time_s": result.get("computation_time_s", 0.0),
     }
 

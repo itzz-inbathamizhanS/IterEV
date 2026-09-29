@@ -6,6 +6,7 @@ are reproducible and systematically controlled.
 """
 
 from dataclasses import dataclass, field
+from engines.uncertainty_engine import AblationFlags
 
 
 @dataclass
@@ -27,6 +28,11 @@ class ExperimentConfig:
     lambda_battery: float = 0.30
     mu_fmr: float = 0.50
     epsilon_fmr: float = 0.10
+    # Ablation flags — default all enabled
+    ablation: AblationFlags = field(default_factory=AblationFlags)
+    # Validation seed — separate from estimation seed
+    validation_seed: int = 4242
+    validation_count: int = 20000
 
     def to_dict(self) -> dict:
         return {

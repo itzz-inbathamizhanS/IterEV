@@ -274,7 +274,8 @@ class TestUncertaintyEngine:
         assert s.energy_multipliers.shape == (100, 7)
         assert s.temperature_offsets.shape == (100, 7)
         assert s.charger_available.shape == (100, 7)
-        assert s.demand_multipliers.shape == (100,)
+        assert s.demand_multipliers.shape == (100, 7)
+        assert s.degradation_noise.shape == (100, 7)
 
 
 # ─── Charging Engine Tests ──────────────────────────────────────────────────
@@ -440,3 +441,224 @@ class TestEdgeCases:
                          distance_km=100, priority="NORMAL")
         result = compute_probabilistic_fmr(60.0, 94.0, [trip], scenario_count=100)
         assert result.total_scenarios == 100
+
+
+# ─── Causal Sanity Tests (Bug Fix Verification) ────────────────────────────
+
+class TestFutureSOCConsumption:
+    """Bug #1: Future trips MUST consume SOC."""
+
+    def test_two_trips_lower_soc_for_second(self):
+        """Two trips on consecutive days: second trip starts with lower SOC."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        # One trip
+        trip1 = FutureTrip(id="t1", day="TOMORROW", origin="A", destination="B",
+                           distance_km=50, priority="NORMAL")
+        r1 = compute_probabilistic_fmr(80.0, 94.0, [trip1], scenario_count=500,
+                                       random_seed=42, charging_availability=0.0)
+
+        # Two trips: second on DAY 3
+        trip2 = FutureTrip(id="t2", day="DAY 3", origin="B", destination="C",
+                           distance_km=50, priority="NORMAL")
+        r2 = compute_probabilistic_fmr(80.0, 94.0, [trip1, trip2], scenario_count=500,
+                                       random_seed=42, charging_availability=0.0)
+
+        # More trips with no charging → higher FMR
+        assert r2.fmr >= r1.fmr, "Two trips should have >= FMR than one trip"
+
+    def test_trip_reduces_soc_measurably(self):
+        """A 200km trip should cause measurable future risk even from high SOC."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trip_big = FutureTrip(id="t1", day="TOMORROW", origin="A", destination="B",
+                              distance_km=200, priority="CRITICAL")
+        trip_small = FutureTrip(id="t2", day="TOMORROW", origin="A", destination="B",
+                                distance_km=20, priority="NORMAL")
+
+        r_big = compute_probabilistic_fmr(50.0, 94.0, [trip_big], scenario_count=500, random_seed=42)
+        r_small = compute_probabilistic_fmr(50.0, 94.0, [trip_small], scenario_count=500, random_seed=42)
+
+        assert r_big.fmr > r_small.fmr, "Longer trip should have higher FMR"
+
+
+class TestFutureSOHPropagation:
+    """Bug #2: SOH MUST propagate across future days."""
+
+    def test_soh_degrades_over_horizon(self):
+        """Multiple trips should cause measurable SOH change across days."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trips = [
+            FutureTrip(id="t1", day="TOMORROW", origin="A", destination="B",
+                       distance_km=150, priority="NORMAL"),
+            FutureTrip(id="t2", day="DAY 3", origin="B", destination="C",
+                       distance_km=150, priority="NORMAL"),
+            FutureTrip(id="t3", day="DAY 5", origin="C", destination="D",
+                       distance_km=150, priority="NORMAL"),
+        ]
+        # Low SOH should produce higher FMR than high SOH
+        r_low = compute_probabilistic_fmr(80.0, 75.0, trips, scenario_count=500, random_seed=42)
+        r_high = compute_probabilistic_fmr(80.0, 100.0, trips, scenario_count=500, random_seed=42)
+
+        assert r_low.fmr >= r_high.fmr, "Lower SOH should not improve feasibility"
+
+
+class TestDegradationNoise:
+    """Bug #10: Degradation noise MUST be applied."""
+
+    def test_same_seed_same_degradation(self):
+        from engines.uncertainty_engine import generate_scenarios
+        s1 = generate_scenarios(n_scenarios=100, random_seed=42)
+        s2 = generate_scenarios(n_scenarios=100, random_seed=42)
+        assert np.array_equal(s1.degradation_noise, s2.degradation_noise)
+
+    def test_different_seed_different_degradation(self):
+        from engines.uncertainty_engine import generate_scenarios
+        s1 = generate_scenarios(n_scenarios=100, random_seed=42)
+        s2 = generate_scenarios(n_scenarios=100, random_seed=99)
+        assert not np.array_equal(s1.degradation_noise, s2.degradation_noise)
+
+
+class TestChargingIntegration:
+    """Bug #3: Charging engine MUST be used in future simulation."""
+
+    def test_charging_available_improves_feasibility(self):
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trip = FutureTrip(id="t1", day="DAY 3", origin="A", destination="B",
+                          distance_km=200, priority="NORMAL")
+
+        r_no_charge = compute_probabilistic_fmr(
+            40.0, 94.0, [trip], scenario_count=500, random_seed=42,
+            charging_availability=0.0)
+        r_charge = compute_probabilistic_fmr(
+            40.0, 94.0, [trip], scenario_count=500, random_seed=42,
+            charging_availability=1.0)
+
+        assert r_charge.fmr <= r_no_charge.fmr, \
+            "Charging availability should not increase FMR"
+
+    def test_charging_boundary_zero(self):
+        """availability=0 means no charging ever."""
+        from engines.uncertainty_engine import generate_scenarios
+        s = generate_scenarios(n_scenarios=100, random_seed=42, charging_availability=0.0)
+        assert not np.any(s.charger_available), "No charger should be available with p=0"
+
+    def test_charging_boundary_one(self):
+        """availability=1 means always available."""
+        from engines.uncertainty_engine import generate_scenarios
+        s = generate_scenarios(n_scenarios=100, random_seed=42, charging_availability=1.0)
+        assert np.all(s.charger_available), "All chargers should be available with p=1"
+
+
+class TestAblationFlags:
+    """Bug #5: Ablation MUST truly disable components."""
+
+    def test_no_energy_uncertainty_deterministic(self):
+        from engines.uncertainty_engine import generate_scenarios, AblationFlags
+        abl = AblationFlags(use_energy_uncertainty=False)
+        s = generate_scenarios(n_scenarios=100, random_seed=42, ablation=abl)
+        assert np.all(s.energy_multipliers == 1.0), "Energy should be deterministic"
+
+    def test_no_demand_uncertainty_deterministic(self):
+        from engines.uncertainty_engine import generate_scenarios, AblationFlags
+        abl = AblationFlags(use_demand_uncertainty=False)
+        s = generate_scenarios(n_scenarios=100, random_seed=42, ablation=abl)
+        # All values should be the same (the base demand multiplier)
+        assert np.all(s.demand_multipliers == s.demand_multipliers[0, 0]), \
+            "Demand should be deterministic when disabled"
+
+    def test_no_degradation_uncertainty(self):
+        from engines.uncertainty_engine import generate_scenarios, AblationFlags
+        abl = AblationFlags(use_degradation_uncertainty=False)
+        s = generate_scenarios(n_scenarios=100, random_seed=42, ablation=abl)
+        assert np.all(s.degradation_noise == 1.0), "Degradation noise should be 1.0"
+
+
+class TestCausalMonotonicity:
+    """§54: Causal direction checks — verify expected monotonicity."""
+
+    def test_lower_soc_higher_risk(self):
+        """Lower initial SOC should not improve feasibility."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trip = FutureTrip(id="t", day="TOMORROW", origin="A", destination="B",
+                          distance_km=100, priority="NORMAL")
+        r_low = compute_probabilistic_fmr(30.0, 94.0, [trip], scenario_count=500, random_seed=42)
+        r_high = compute_probabilistic_fmr(80.0, 94.0, [trip], scenario_count=500, random_seed=42)
+        assert r_low.fmr >= r_high.fmr, "Lower SOC should not reduce FMR"
+
+    def test_lower_soh_higher_risk(self):
+        """Lower SOH → less usable capacity → should not improve feasibility."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trip = FutureTrip(id="t", day="TOMORROW", origin="A", destination="B",
+                          distance_km=100, priority="NORMAL")
+        r_low = compute_probabilistic_fmr(60.0, 70.0, [trip], scenario_count=500, random_seed=42)
+        r_high = compute_probabilistic_fmr(60.0, 100.0, [trip], scenario_count=500, random_seed=42)
+        assert r_low.fmr >= r_high.fmr, "Lower SOH should not reduce FMR"
+
+    def test_lower_charging_higher_risk(self):
+        """Lower charging availability should not systematically improve feasibility."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trip = FutureTrip(id="t", day="DAY 3", origin="A", destination="B",
+                          distance_km=150, priority="NORMAL")
+        r_none = compute_probabilistic_fmr(
+            40.0, 94.0, [trip], scenario_count=500, random_seed=42,
+            charging_availability=0.0)
+        r_full = compute_probabilistic_fmr(
+            40.0, 94.0, [trip], scenario_count=500, random_seed=42,
+            charging_availability=1.0)
+        assert r_none.fmr >= r_full.fmr, \
+            "No charging should not reduce FMR vs full charging"
+
+    def test_fmr_plus_fmf_near_100(self):
+        """FMR + FMF should approximately equal 100."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trip = FutureTrip(id="t", day="TOMORROW", origin="A", destination="B",
+                          distance_km=100, priority="NORMAL")
+        r = compute_probabilistic_fmr(60.0, 94.0, [trip], scenario_count=500, random_seed=42)
+        assert abs(r.fmr + r.fmf - 100.0) < 0.1, f"FMR + FMF = {r.fmr + r.fmf}, expected ~100"
+
+    def test_ci_bounds(self):
+        """CI lower <= FMR <= CI upper."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        trip = FutureTrip(id="t", day="TOMORROW", origin="A", destination="B",
+                          distance_km=100, priority="NORMAL")
+        r = compute_probabilistic_fmr(60.0, 94.0, [trip], scenario_count=500, random_seed=42)
+        assert r.confidence_interval.lower <= r.fmr <= r.confidence_interval.upper
+
+
+class TestMultiDayPropagation:
+    """Verify cumulative state propagation across days."""
+
+    def test_three_day_cumulative(self):
+        """Day 1 → Day 2 → Day 3 state is cumulative."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+
+        t1 = FutureTrip(id="t1", day="TOMORROW", origin="A", destination="B",
+                        distance_km=80, priority="NORMAL")
+        t2 = FutureTrip(id="t2", day="DAY 3", origin="B", destination="C",
+                        distance_km=80, priority="NORMAL")
+        t3 = FutureTrip(id="t3", day="DAY 5", origin="C", destination="D",
+                        distance_km=80, priority="NORMAL")
+
+        r1 = compute_probabilistic_fmr(60.0, 94.0, [t1], scenario_count=500,
+                                       random_seed=42, charging_availability=0.0)
+        r3 = compute_probabilistic_fmr(60.0, 94.0, [t1, t2, t3], scenario_count=500,
+                                       random_seed=42, charging_availability=0.0)
+        assert r3.fmr >= r1.fmr, "Three trips should have >= FMR than one trip"

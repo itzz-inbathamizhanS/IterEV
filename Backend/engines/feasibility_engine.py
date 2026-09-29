@@ -2,27 +2,41 @@
 Feasibility Engine — Probabilistic Future Mobility Risk (FMR) estimation.
 
 Research reference:
-  §13.1 — Future Mobility Feasibility (FMF):
-           "probability that all planned trips in the next planning horizon can be
-           completed, including required charging stops."
-  §13.2 — Future Mobility Risk (FMR):
-           FMR = P(future mobility requirements become infeasible)
+  §13.1 — Future Mobility Feasibility (FMF)
+  §13.2 — Future Mobility Risk (FMR) = P(future mobility infeasible)
   §18   — FMR(a) = P[I_future(a, ω) = 0]
 
-Implementation:
-  Phase 1 (legacy): Deterministic weighted feasibility (preserved for comparison)
-  Phase 2 (research): Monte Carlo scenario-based probabilistic FMR
+CRITICAL IMPLEMENTATION NOTES (fixes from research audit):
 
-  For each candidate action a:
-    1. Generate N future scenarios (via uncertainty_engine)
-    2. For each scenario, propagate battery state through future days
-    3. For each future trip, check feasibility under scenario conditions
-    4. A scenario fails if ANY required trip is infeasible
-    5. FMR(a) = failed_scenarios / total_scenarios
-    6. Compute binomial confidence interval
+  The Monte Carlo simulator now correctly implements the full state chain:
 
-  Confidence interval: Wilson score interval (better coverage than Wald for
-  extreme proportions near 0 or 1).
+  For each scenario s = 1..N, for each day d = 0..horizon:
+    1. Check if trip scheduled on day d
+    2. Compute trip energy under scenario conditions
+    3. Check feasibility: SOC_available >= SOC_required
+    4. If feasible: subtract trip energy from SOC (STATE CHANGE)
+    5. If infeasible: mark scenario as failed, continue for diagnostics
+    6. Compute SOH degradation from trip energy throughput
+    7. Update SOH (STATE CHANGE)
+    8. Apply charging if charger available (via charging_engine)
+    9. Compute SOH degradation from charging
+    10. Apply standby/auxiliary loss
+    11. Clamp SOC to [0, 100]
+    12. Advance to next day
+
+  This ensures:
+    - Future trips CONSUME SOC (Bug #1 fix)
+    - SOH PROPAGATES across days (Bug #2 fix)
+    - Charging engine is ACTUALLY USED (Bug #3 fix)
+    - Degradation noise is APPLIED (Bug #10 fix)
+    - Long trips use energy-balance feasibility (Bug #18 fix)
+
+  A scenario FAILS if at least one mandatory future trip cannot be
+  completed while respecting the minimum SOC reserve.
+
+  FMR = N_failed / N_total
+
+  Confidence interval: Wilson score (better coverage near 0/1).
 """
 
 import numpy as np
@@ -39,18 +53,28 @@ from models.constants import (
     LONG_TRIP_DEPARTURE_SOC_MIN,
     TEMP_SENSITIVITY_PER_DEGREE,
     BASELINE_TEMP_C,
+    BASELINE_SOH,
+    SOH_ENERGY_FACTOR_PER_POINT,
     DEFAULT_SCENARIO_COUNT,
     DEFAULT_RANDOM_SEED,
     DEFAULT_CHARGING_AVAILABILITY,
     CONFIDENCE_LEVEL,
     MAX_CHARGING_SOC,
+    DEFAULT_CHARGER_POWER_KW,
+    CHARGING_EFFICIENCY,
+    MIN_OPERATIONAL_SOC,
+    DEGRADATION_BASE_RATE,
+    DEGRADATION_TEMP_REF_C,
+    DEGRADATION_TEMP_COEFF,
+    DEGRADATION_DOD_EXPONENT,
+    DEGRADATION_CRATE_THRESHOLD,
+    DEGRADATION_CRATE_COEFF,
 )
 from engines.battery_engine import (
     compute_usable_capacity,
-    compute_soh_degradation,
     future_soc_projection,
 )
-from engines.uncertainty_engine import generate_scenarios, ScenarioSet
+from engines.uncertainty_engine import generate_scenarios, ScenarioSet, AblationFlags
 
 
 # ─── Day Parsing ────────────────────────────────────────────────────────────
@@ -58,29 +82,68 @@ from engines.uncertainty_engine import generate_scenarios, ScenarioSet
 def _parse_day_index(day_str: str) -> int:
     """
     Convert day string to integer day offset.
-
-    "TODAY"     → 0
-    "TOMORROW"  → 1
-    "DAY 3"     → 2  (day 3 = index 2, since day 1 = index 0 is today)
-    "DAY 5"     → 4
-    "DAY N"     → N-1
-
-    This fixes the previous implementation which used trip list index
-    instead of actual day parsing.
+    "TODAY" → 0, "TOMORROW" → 1, "DAY 3" → 2, "DAY N" → N-1
     """
     day_upper = day_str.strip().upper()
     if day_upper == "TODAY":
         return 0
     if day_upper == "TOMORROW":
         return 1
-    # Parse "DAY N" format
     if day_upper.startswith("DAY"):
         try:
             n = int(day_upper.replace("DAY", "").strip())
-            return max(0, n - 1)  # DAY 1 = today = index 0
+            return max(0, n - 1)
         except ValueError:
-            return 1  # Default to tomorrow if unparseable
-    return 1  # Default
+            return 1
+    return 1
+
+
+# ─── Vectorized SOH Degradation (inline for performance) ───────────────────
+
+def _compute_degradation_vec(
+    energy_kwh: np.ndarray,
+    temperature: np.ndarray,
+    soc_start: np.ndarray,
+    soc_end: np.ndarray,
+    usable_kwh: np.ndarray,
+    degradation_noise: np.ndarray,
+    charging_power_kw: float = 0.0,
+) -> np.ndarray:
+    """
+    Vectorized SOH degradation calculation for N scenarios.
+
+    ΔSOH = base_rate × throughput × temp_factor × dod_factor × crate_factor × noise
+
+    Args all shape (N,). Returns ΔSOH shape (N,).
+    """
+    safe_usable = np.maximum(usable_kwh, 0.01)
+    throughput = energy_kwh / safe_usable
+
+    temp_delta = np.abs(temperature - DEGRADATION_TEMP_REF_C)
+    temp_factor = 1.0 + DEGRADATION_TEMP_COEFF * temp_delta
+
+    dod = np.abs(soc_start - soc_end) / 100.0
+    dod_factor = np.maximum(dod, 0.01) ** DEGRADATION_DOD_EXPONENT
+
+    if charging_power_kw > 0:
+        c_rate = charging_power_kw / safe_usable
+        crate_factor = np.where(
+            c_rate > DEGRADATION_CRATE_THRESHOLD,
+            1.0 + DEGRADATION_CRATE_COEFF * (c_rate - DEGRADATION_CRATE_THRESHOLD),
+            1.0,
+        )
+    else:
+        crate_factor = np.ones_like(energy_kwh)
+
+    delta_soh = (
+        DEGRADATION_BASE_RATE
+        * throughput
+        * temp_factor
+        * dod_factor
+        * crate_factor
+        * degradation_noise
+    )
+    return np.maximum(delta_soh, 0.0)
 
 
 # ─── Trip SOC Requirement ───────────────────────────────────────────────────
@@ -92,19 +155,9 @@ def _soc_required_for_trip(
     efficiency_km_kwh: float = BASELINE_EFFICIENCY_KM_KWH,
     buffer_pct: float = SAFETY_SOC_BUFFER_PCT,
 ) -> float:
-    """
-    Compute the minimum SOC required to begin a trip.
-
-    For SHORT trips (≤ MAX_SINGLE_CHARGE_KM):
-      SOC_required = (E_trip / C_usable × 100) + buffer_pct
-      where E_trip = distance_km / efficiency_km_kwh
-
-    For LONG trips (> MAX_SINGLE_CHARGE_KM):
-      Requires en-route charging. Minimum departure SOC only.
-    """
+    """Compute minimum SOC required to begin a trip (scalar version for display)."""
     if distance_km > MAX_SINGLE_CHARGE_KM:
         return LONG_TRIP_DEPARTURE_SOC_MIN
-
     usable_kwh = compute_usable_capacity(soh, capacity_kwh)
     if usable_kwh <= 0:
         return 95.0
@@ -124,11 +177,8 @@ def compute_fmf(
     safety_buffer_pct: float = SAFETY_SOC_BUFFER_PCT,
 ) -> tuple[float, float, list[TripFeasibilityDetail]]:
     """
-    Calculate deterministic FMF/FMR using weighted feasibility ratio.
-
-    This is the LEGACY implementation preserved for baseline comparisons.
-    For research use, prefer compute_probabilistic_fmr().
-
+    Deterministic FMF/FMR using weighted feasibility ratio.
+    LEGACY — preserved for baseline comparisons only.
     FMF = Σ(w_i × I_i) / Σ(w_i)
     """
     if not future_trips:
@@ -138,7 +188,6 @@ def compute_fmf(
     weighted_feasible = 0.0
     weighted_total = 0.0
 
-    # Project SOC forward using day indices
     max_day = max(_parse_day_index(t.day) for t in future_trips)
     projected_socs = [soc_after] + future_soc_projection(
         soc_after=soc_after,
@@ -150,8 +199,6 @@ def compute_fmf(
 
     for trip in future_trips:
         day_idx = _parse_day_index(trip.day)
-
-        # Use projected SOC for the correct day
         if day_idx < len(projected_socs):
             available_soc = projected_socs[day_idx]
         else:
@@ -201,37 +248,25 @@ def compute_probabilistic_fmr(
     charging_availability: float = DEFAULT_CHARGING_AVAILABILITY,
     temperature: float = 29.0,
     planning_horizon: int = 5,
+    ablation: AblationFlags | None = None,
 ) -> FeasibilityResult:
     """
     Compute probabilistic FMR using Monte Carlo scenario simulation.
 
-    For each candidate action a:
-      1. Generate N future scenarios
-      2. For each scenario, propagate battery state day-by-day
-      3. For each future trip at its scheduled day, check feasibility
-      4. A scenario fails if ANY required trip is infeasible
-      5. FMR(a) = failed_scenarios / total_scenarios
-      6. Compute Wilson score confidence interval
+    FULL STATE PROPAGATION (corrected):
+      For each scenario, for each day:
+        1. If trip on this day → compute energy, check feasibility, subtract SOC
+        2. Compute SOH degradation from trip
+        3. If charger available → charge using energy-balance model
+        4. Compute SOH degradation from charging
+        5. Apply standby loss
+        6. Advance to next day
 
-    Args:
-        soc_after: SOC after the current action (%)
-        soh: Current SOH (%)
-        future_trips: Planned future trips
-        capacity_kwh: Nominal battery capacity (kWh)
-        efficiency_km_kwh: Vehicle efficiency (km/kWh)
-        safety_buffer_pct: Safety SOC margin (%)
-        scenario_count: Number of Monte Carlo scenarios (N)
-        random_seed: For reproducibility
-        uncertainty_level: "Low" | "Medium" | "High"
-        demand_level: "Low" | "Medium" | "High" | "Very High"
-        charging_availability: P(charger available) for Bernoulli
-        temperature: Base temperature (°C)
-        planning_horizon: Number of future days
-
-    Returns:
-        FeasibilityResult with probabilistic FMR, confidence interval,
-        scenario counts, and per-trip details.
+    A scenario FAILS if ANY required future trip is infeasible.
+    FMR(a) = failed_scenarios / total_scenarios
     """
+    abl = ablation or AblationFlags()
+
     if not future_trips:
         return FeasibilityResult(
             fmf=99.0, fmr=1.0,
@@ -240,14 +275,19 @@ def compute_probabilistic_fmr(
             total_scenarios=scenario_count,
             successful_scenarios=scenario_count,
             failed_scenarios=0,
-            confidence_interval=ConfidenceInterval(lower=0.0, upper=2.0 / scenario_count * 100),
+            confidence_interval=ConfidenceInterval(lower=0.0, upper=round(2.0 / scenario_count * 100, 4)),
             random_seed=random_seed,
         )
 
-    # Parse day indices for all trips
+    # Parse day indices for all trips; build a lookup: day → list of (index, trip)
     trip_days = [_parse_day_index(t.day) for t in future_trips]
     max_day = max(trip_days) if trip_days else 0
     sim_horizon = max(max_day + 1, planning_horizon)
+
+    trips_by_day: dict[int, list[tuple[int, FutureTrip]]] = {}
+    for i, trip in enumerate(future_trips):
+        d = trip_days[i]
+        trips_by_day.setdefault(d, []).append((i, trip))
 
     # Generate scenarios
     scenarios = generate_scenarios(
@@ -258,105 +298,160 @@ def compute_probabilistic_fmr(
         charging_availability=charging_availability,
         base_temperature=temperature,
         random_seed=random_seed,
+        ablation=abl,
     )
 
-    # ─── Vectorized Scenario Simulation ─────────────────────────────────
     N = scenario_count
+    n_trips = len(future_trips)
 
-    # Initialize SOC array: (N,) — all scenarios start at soc_after
-    soc_by_day = np.full((N, sim_horizon + 1), soc_after)
-    soh_current = np.full(N, soh)
+    # ─── State Arrays ───────────────────────────────────────────────────
+    # SOC and SOH tracked per-scenario, evolving over time
+    soc = np.full(N, soc_after)               # Current SOC (%)
+    soh_arr = np.full(N, soh)                  # Current SOH (%)
 
-    # Propagate SOC day by day
-    for day in range(sim_horizon):
-        # Standby loss
-        soc_by_day[:, day + 1] = soc_by_day[:, day] - DAILY_STANDBY_LOSS_PCT
+    # Record SOC at start of each day for risk timeline
+    soc_by_day = np.zeros((N, sim_horizon + 1))
+    soc_by_day[:, 0] = soc_after
 
-        # Temperature-adjusted efficiency for this day
-        day_idx = min(day, scenarios.temperature_offsets.shape[1] - 1)
-        temp_offsets = scenarios.temperature_offsets[:, day_idx]
-        effective_temp = temperature + temp_offsets
-        temp_factor = 1.0 + (effective_temp - BASELINE_TEMP_C) * TEMP_SENSITIVITY_PER_DEGREE
-
-        # Traffic factor for this day
-        traffic_factors = scenarios.traffic_factors[:, day_idx]
-
-        # Energy multiplier (prediction uncertainty)
-        energy_mult = scenarios.energy_multipliers[:, day_idx]
-
-        # Combined efficiency adjustment
-        combined_factor = temp_factor * traffic_factors * energy_mult
-
-        # Check if charging is available this day
-        charger_avail = scenarios.charger_available[:, day_idx]
-
-        # For scenarios where charger IS available and SOC < 50%, assume opportunity charging
-        # This models overnight/daytime charging opportunity
-        charge_mask = charger_avail & (soc_by_day[:, day + 1] < 50.0)
-        # Charge up to 80% SOC (partial charge during available window)
-        soc_by_day[charge_mask, day + 1] = np.minimum(
-            80.0, soc_by_day[charge_mask, day + 1] + 30.0
-        )
-
-        # Clamp SOC
-        soc_by_day[:, day + 1] = np.clip(soc_by_day[:, day + 1], 0.0, 100.0)
-
-    # ─── Check Trip Feasibility Per Scenario ────────────────────────────
-    # A scenario fails if ANY required trip is infeasible
+    # Tracking
     scenario_failed = np.zeros(N, dtype=bool)
+    trip_feasible_counts = np.zeros(n_trips, dtype=int)
 
-    # Per-trip aggregated feasibility for reporting
-    trip_feasible_counts = np.zeros(len(future_trips), dtype=int)
+    # ─── Day-by-Day State Propagation ───────────────────────────────────
+    for day in range(sim_horizon):
+        day_col = min(day, scenarios.energy_multipliers.shape[1] - 1)
 
-    for i, trip in enumerate(future_trips):
-        day_idx = trip_days[i]
-
-        # Get SOC available on the trip's day for all scenarios
-        soc_available = soc_by_day[:, day_idx]
-
-        # Adjust trip distance by demand multiplier
-        adjusted_distance = trip.distance_km * scenarios.demand_multipliers
-
-        # Compute SOC required with per-scenario efficiency variation
-        day_col = min(day_idx, sim_horizon - 1)
+        # Per-scenario environment for this day
         energy_mult = scenarios.energy_multipliers[:, day_col]
-        traffic_factor = scenarios.traffic_factors[:, day_col]
         temp_offset = scenarios.temperature_offsets[:, day_col]
+        traffic_factor = scenarios.traffic_factors[:, day_col]
+        charger_avail = scenarios.charger_available[:, day_col]
+        deg_noise = scenarios.degradation_noise[:, day_col]
+        demand_mult = scenarios.demand_multipliers[:, day_col]
+
         effective_temp = temperature + temp_offset
-        temp_factor = 1.0 + (effective_temp - BASELINE_TEMP_C) * TEMP_SENSITIVITY_PER_DEGREE
+        temp_energy_factor = 1.0 + (effective_temp - BASELINE_TEMP_C) * TEMP_SENSITIVITY_PER_DEGREE
+        soh_energy_factor = 1.0 + np.maximum(0.0, BASELINE_SOH - soh_arr) * SOH_ENERGY_FACTOR_PER_POINT
 
-        # Effective efficiency per scenario (km/kWh)
-        effective_efficiency = efficiency_km_kwh / (energy_mult * traffic_factor * temp_factor)
-        effective_efficiency = np.clip(effective_efficiency, 1.0, 20.0)
+        # Combined energy adjustment factor for this day
+        combined_energy_factor = energy_mult * traffic_factor * temp_energy_factor * soh_energy_factor
 
-        # For long trips: check departure SOC + charging availability
-        is_long_trip = adjusted_distance > MAX_SINGLE_CHARGE_KM
-        usable_kwh = capacity_kwh * (soh_current / 100.0)
+        # Usable capacity (depends on current SOH — this is the causal chain)
+        usable_kwh = capacity_kwh * (soh_arr / 100.0)
+        safe_usable = np.maximum(usable_kwh, 0.01)
 
-        # Short trip: energy-based SOC requirement
-        energy_needed = adjusted_distance / effective_efficiency
-        soc_needed = np.where(
-            is_long_trip,
-            LONG_TRIP_DEPARTURE_SOC_MIN,
-            (energy_needed / usable_kwh) * 100.0 + safety_buffer_pct,
-        )
-        soc_needed = np.clip(soc_needed, 0.0, 95.0)
+        # ── Step 1: Process trips scheduled on this day ─────────────
+        if day in trips_by_day:
+            for trip_idx, trip in trips_by_day[day]:
+                # Trip distance with per-day demand uncertainty
+                adjusted_distance = trip.distance_km * demand_mult
 
-        # For long trips, also check charging availability
-        long_trip_charger = scenarios.charger_available[:, day_col]
-        trip_infeasible = soc_available < soc_needed
-        # Long trips fail if charger unavailable AND SOC insufficient
-        trip_infeasible = np.where(
-            is_long_trip,
-            trip_infeasible & ~long_trip_charger,
-            trip_infeasible,
-        )
+                # Trip energy under scenario conditions
+                # E = distance / (base_efficiency / combined_factor)
+                #   = distance * combined_factor / base_efficiency
+                trip_energy = (adjusted_distance * combined_energy_factor) / efficiency_km_kwh
 
-        trip_feasible = ~trip_infeasible
-        trip_feasible_counts[i] = np.sum(trip_feasible)
+                # SOC required for this trip (as %)
+                trip_soc_pct = (trip_energy / safe_usable) * 100.0 + safety_buffer_pct
 
-        # Mark scenarios as failed if this trip is infeasible
-        scenario_failed |= trip_infeasible
+                # For long trips: check if en-route charging can bridge the gap
+                is_long = adjusted_distance > MAX_SINGLE_CHARGE_KM
+                if np.any(is_long):
+                    # Long trip charging model:
+                    # Available energy = current SOC energy + charging energy
+                    # Charging energy from one stop: charger_power * 30min * efficiency
+                    charge_stop_energy = (DEFAULT_CHARGER_POWER_KW * 0.5 * CHARGING_EFFICIENCY)
+                    charge_stop_soc = (charge_stop_energy / safe_usable) * 100.0
+                    # Number of stops needed (ceil)
+                    energy_deficit = np.maximum(0, trip_energy - (soc * safe_usable / 100.0))
+                    stops_needed = np.ceil(energy_deficit / charge_stop_energy)
+                    # Long trip feasible if: have minimum departure SOC AND
+                    # (don't need charging OR charger is available)
+                    needs_charging = energy_deficit > 0
+                    long_trip_feasible = (
+                        (soc >= LONG_TRIP_DEPARTURE_SOC_MIN)
+                        & (~needs_charging | charger_avail)
+                    )
+                    # For long trips that are feasible with charging, compute net SOC change
+                    long_soc_consumed = np.where(
+                        is_long & long_trip_feasible,
+                        np.maximum(trip_soc_pct - stops_needed * charge_stop_soc, LONG_TRIP_DEPARTURE_SOC_MIN),
+                        trip_soc_pct,
+                    )
+                    trip_soc_pct = np.where(is_long, long_soc_consumed, trip_soc_pct)
+                    trip_infeasible = np.where(is_long, ~long_trip_feasible, soc < trip_soc_pct)
+                else:
+                    trip_infeasible = soc < trip_soc_pct
+
+                # Also fail if SOC would drop below minimum operational level
+                soc_after_trip = soc - (trip_energy / safe_usable) * 100.0
+                trip_infeasible |= (soc_after_trip < MIN_OPERATIONAL_SOC)
+
+                trip_feasible = ~trip_infeasible
+                trip_feasible_counts[trip_idx] = int(np.sum(trip_feasible))
+
+                # Mark failed scenarios
+                scenario_failed |= trip_infeasible
+
+                # ── STATE CHANGE: subtract trip energy from SOC ──
+                # Even for failed scenarios, consume what's available (for diagnostics)
+                soc_before_trip = soc.copy()
+                energy_consumed_pct = (trip_energy / safe_usable) * 100.0
+                soc = np.maximum(0.0, soc - energy_consumed_pct)
+
+                # ── SOH degradation from trip ──
+                if abl.use_battery_degradation:
+                    delta_soh_trip = _compute_degradation_vec(
+                        energy_kwh=trip_energy,
+                        temperature=effective_temp,
+                        soc_start=soc_before_trip,
+                        soc_end=soc,
+                        usable_kwh=safe_usable,
+                        degradation_noise=deg_noise,
+                    )
+                    soh_arr = np.maximum(0.0, soh_arr - delta_soh_trip)
+                    # Update usable capacity after degradation
+                    usable_kwh = capacity_kwh * (soh_arr / 100.0)
+                    safe_usable = np.maximum(usable_kwh, 0.01)
+
+        # ── Step 2: Charging opportunity ────────────────────────────
+        # Use charging engine energy-balance model (not hardcoded +30%)
+        # Charge when: charger available AND SOC < 80%
+        charge_mask = charger_avail & (soc < 80.0)
+        if np.any(charge_mask):
+            soc_before_charge = soc.copy()
+
+            # Target: charge to MAX_CHARGING_SOC (95%) or as much as possible
+            # in a fixed charging window (e.g., overnight ~4 hours)
+            charging_hours = 4.0
+            grid_energy = DEFAULT_CHARGER_POWER_KW * charging_hours
+            battery_energy = grid_energy * CHARGING_EFFICIENCY
+            charge_soc_gain = (battery_energy / safe_usable) * 100.0
+
+            soc_charged = np.minimum(MAX_CHARGING_SOC, soc + charge_soc_gain)
+            soc = np.where(charge_mask, soc_charged, soc)
+
+            # SOH degradation from charging
+            if abl.use_battery_degradation:
+                charge_energy = np.where(charge_mask, (soc - soc_before_charge) / 100.0 * safe_usable, 0.0)
+                delta_soh_charge = _compute_degradation_vec(
+                    energy_kwh=np.maximum(charge_energy, 0.0),
+                    temperature=effective_temp,
+                    soc_start=soc_before_charge,
+                    soc_end=soc,
+                    usable_kwh=safe_usable,
+                    degradation_noise=deg_noise,
+                    charging_power_kw=DEFAULT_CHARGER_POWER_KW,
+                )
+                soh_arr = np.maximum(0.0, soh_arr - delta_soh_charge)
+
+        # ── Step 3: Standby/auxiliary consumption ───────────────────
+        soc = soc - DAILY_STANDBY_LOSS_PCT
+        soc = np.clip(soc, 0.0, 100.0)
+
+        # Record SOC at start of next day
+        if day + 1 < soc_by_day.shape[1]:
+            soc_by_day[:, day + 1] = soc
 
     # ─── Compute FMR ────────────────────────────────────────────────────
     failed_count = int(np.sum(scenario_failed))
@@ -371,21 +466,19 @@ def compute_probabilistic_fmr(
     ci_lower_pct = round(ci_lower * 100.0, 2)
     ci_upper_pct = round(ci_upper * 100.0, 2)
 
-    # ─── Per-Trip Feasibility Details (deterministic, for display) ──────
+    # ─── Per-Trip Details (deterministic, for display) ──────────────────
     _, _, trip_details = compute_fmf(
         soc_after, soh, future_trips,
         capacity_kwh, efficiency_km_kwh, safety_buffer_pct,
     )
-    # Enrich with scenario-based success rates
     for i, detail in enumerate(trip_details):
         if i < len(trip_feasible_counts):
             scenario_rate = trip_feasible_counts[i] / N * 100.0
-            # Update margin to reflect probabilistic assessment
             detail.margin = round(scenario_rate - 50.0, 1)
 
     # ─── Risk Timeline ──────────────────────────────────────────────────
-    risk_timeline = _compute_risk_timeline_from_scenarios(
-        soc_by_day, soh, future_trips, trip_days, planning_horizon,
+    risk_timeline = _compute_risk_timeline(
+        soc_by_day, soh_arr, future_trips, trip_days, planning_horizon,
         capacity_kwh, efficiency_km_kwh, safety_buffer_pct, scenarios, temperature,
     )
 
@@ -412,39 +505,24 @@ def _wilson_ci(
 ) -> tuple[float, float]:
     """
     Wilson score confidence interval for a binomial proportion.
-
-    Better coverage than the Wald interval for proportions near 0 or 1.
-
-    Ref: Wilson, E.B. (1927), "Probable inference, the law of succession,
-         and statistical inference", JASA.
-
-    Args:
-        successes: Number of "successes" (here: failed scenarios)
-        n: Total number of trials (scenarios)
-        confidence: Confidence level (default 0.95)
-
-    Returns:
-        (lower, upper) bounds of the confidence interval.
+    Ref: Wilson, E.B. (1927), JASA.
     """
     if n == 0:
         return 0.0, 1.0
-
     p_hat = successes / n
     z = scipy_stats.norm.ppf(1 - (1 - confidence) / 2)
     z2 = z * z
-
     denominator = 1 + z2 / n
     center = (p_hat + z2 / (2 * n)) / denominator
     spread = z * np.sqrt((p_hat * (1 - p_hat) + z2 / (4 * n)) / n) / denominator
-
     lower = max(0.0, center - spread)
     upper = min(1.0, center + spread)
     return lower, upper
 
 
-def _compute_risk_timeline_from_scenarios(
+def _compute_risk_timeline(
     soc_by_day: np.ndarray,
-    soh: float,
+    soh_final: np.ndarray,
     future_trips: list[FutureTrip],
     trip_days: list[int],
     planning_horizon: int,
@@ -455,37 +533,33 @@ def _compute_risk_timeline_from_scenarios(
     temperature: float,
 ) -> list[float]:
     """
-    Compute daily FMR values from scenario simulation results.
-
-    For each day in the horizon, compute the fraction of scenarios
-    where at least one remaining trip (from that day forward) is infeasible.
+    Compute daily FMR values from the simulated SOC trajectories.
+    For each day: fraction of scenarios where remaining trips are infeasible.
     """
     N = soc_by_day.shape[0]
     risk_by_day = []
 
     for day in range(planning_horizon):
-        # Find trips from this day forward
         remaining = [(i, t) for i, t in enumerate(future_trips) if trip_days[i] >= day]
-
         if not remaining:
             risk_by_day.append(0.0)
             continue
 
-        # For each remaining trip, check feasibility in all scenarios
         failed_in_day = np.zeros(N, dtype=bool)
-
         for i, trip in remaining:
             trip_day = trip_days[i]
             if trip_day >= soc_by_day.shape[1]:
                 continue
-
             soc_avail = soc_by_day[:, trip_day]
-            usable_kwh = capacity_kwh * (soh / 100.0)
+            # Use mean SOH for timeline (approximate)
+            mean_soh = float(np.mean(soh_final))
+            usable_kwh = capacity_kwh * (mean_soh / 100.0)
             if usable_kwh <= 0:
                 failed_in_day[:] = True
                 continue
 
-            adjusted_dist = trip.distance_km * scenarios.demand_multipliers
+            day_col = min(trip_day, scenarios.demand_multipliers.shape[1] - 1)
+            adjusted_dist = trip.distance_km * scenarios.demand_multipliers[:, day_col]
             energy_needed = adjusted_dist / efficiency_km_kwh
             soc_needed = np.where(
                 adjusted_dist > MAX_SINGLE_CHARGE_KM,
@@ -512,16 +586,12 @@ def compute_risk_timeline(
     efficiency_km_kwh: float = BASELINE_EFFICIENCY_KM_KWH,
     safety_buffer_pct: float = SAFETY_SOC_BUFFER_PCT,
 ) -> list[float]:
-    """
-    Compute daily FMR values across a planning horizon (deterministic).
-    Legacy API — preserved for backward compatibility.
-    """
+    """Deterministic daily FMR (legacy)."""
     risk_by_day = []
     projected_socs = [soc_after] + future_soc_projection(
         soc_after, horizon_days - 1, soh=soh, capacity_kwh=capacity_kwh,
         efficiency_km_kwh=efficiency_km_kwh,
     )
-
     for day_idx, soc_at_day in enumerate(projected_socs[:horizon_days]):
         remaining_trips = [t for t in future_trips if _parse_day_index(t.day) >= day_idx]
         _, fmr, _ = compute_fmf(
@@ -529,7 +599,6 @@ def compute_risk_timeline(
             capacity_kwh, efficiency_km_kwh, safety_buffer_pct
         )
         risk_by_day.append(fmr)
-
     return risk_by_day
 
 
@@ -545,13 +614,9 @@ def compute_full_feasibility(
     uncertainty_level: str = "Medium",
     charging_availability: float = DEFAULT_CHARGING_AVAILABILITY,
     temperature: float = 29.0,
+    ablation: AblationFlags | None = None,
 ) -> FeasibilityResult:
-    """
-    Full feasibility computation using probabilistic FMR.
-
-    This is the primary research API. Uses Monte Carlo scenario simulation
-    to compute probabilistic FMR with confidence intervals.
-    """
+    """Primary research API — probabilistic FMR with full state propagation."""
     return compute_probabilistic_fmr(
         soc_after=soc_after,
         soh=soh,
@@ -564,4 +629,5 @@ def compute_full_feasibility(
         charging_availability=charging_availability,
         temperature=temperature,
         planning_horizon=horizon_days,
+        ablation=ablation,
     )

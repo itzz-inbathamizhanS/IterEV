@@ -133,14 +133,14 @@ def plot_mc_convergence():
         return
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-    ax1.errorbar(df["sample_size"], df["fmr_mean"], yerr=df["fmr_std"],
+    ax1.errorbar(df["N"], df["fmr"], yerr=df["ci_width"] / 2,
                  fmt="o-", color="#9b59b6", capsize=4, markersize=6)
     ax1.set_xlabel("Number of Scenarios (N)")
     ax1.set_ylabel("FMR Estimate (%)")
     ax1.set_title("FMR Convergence", fontweight="bold")
     ax1.set_xscale("log")
 
-    ax2.plot(df["sample_size"], df["runtime_mean_s"], "s-", color="#e74c3c", markersize=6)
+    ax2.plot(df["N"], df["computation_time_s"], "s-", color="#e74c3c", markersize=6)
     ax2.set_xlabel("Number of Scenarios (N)")
     ax2.set_ylabel("Runtime (seconds)")
     ax2.set_title("Computation Time", fontweight="bold")

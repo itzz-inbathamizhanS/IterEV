@@ -1,30 +1,21 @@
 {
-  "experiment": "calibration",
-  "timestamp": "2026-09-29T23:35:45.837078",
-  "config": {
-    "name": "calibration",
-    "scenario_count": 500,
-    "random_seed": 42,
-    "soc_initial": 90,
-    "soh": 94.0,
-    "temperature": 29.0,
-    "traffic": "Medium",
-    "demand": "Medium",
-    "uncertainty": "Medium",
-    "charging_availability": 0.95,
-    "planning_horizon": 5,
-    "capacity_kwh": 80.0,
-    "efficiency": 6.0,
-    "lambda_battery": 0.3,
-    "mu_fmr": 0.5,
-    "epsilon_fmr": 0.1
-  },
+  "estimation_seed": 42,
+  "validation_seed": 4242,
+  "estimation_N": 500,
+  "validation_N": 2000,
+  "timestamp": "2026-09-30T00:06:44.222934",
   "rows": 8,
   "columns": [
     "soc",
     "predicted_fmr",
     "observed_failure_rate",
     "calibration_error",
-    "n_simulations"
-  ]
+    "estimation_scenarios",
+    "estimation_seed",
+    "validation_scenarios",
+    "validation_seed",
+    "val_ci_lower",
+    "val_ci_upper"
+  ],
+  "model_version": "2.0.0-research"
 }

@@ -1,5 +1,5 @@
-travel_time,energy_consumption,monetary_cost,battery_degradation,final_soh,future_success_rate,fmf,fmr,fmr_ci_lower,fmr_ci_upper,constraint_violation_rate,computation_time_s,method,route_name
-42,14.8,185,3e-06,99.9997,7.6,7.6,92.4,90.59,93.89,1.0,0.0047,FASTEST,FASTEST
-53,13.1,160,3e-06,99.9997,11.2,11.2,88.8,86.69,90.61,1.0,0.0044,ENERGY_MIN,BATTERY CARE
-53,13.1,160,3e-06,99.9997,11.2,11.2,88.8,86.69,90.61,1.0,0.0041,BATTERY_AWARE,BATTERY CARE
-53,13.1,160,3e-06,99.9997,11.2,11.2,88.8,86.69,90.61,1.0,0.0048,ITEREV,BATTERY CARE
+method,travel_time,energy_consumption,monetary_cost,soc_after,soh_loss,future_success_rate,fmf,fmr,fmr_ci_lower,fmr_ci_upper,constraint_feasible,constraint_violations,total_scenarios,computation_time_s
+FASTEST,42,14.8,185,58.3,3e-06,2.0,2.0,98.0,96.36,98.91,False,1,500,0.0038
+ENERGY_MIN,53,13.1,160,60.6,3e-06,2.0,2.0,98.0,96.36,98.91,False,1,500,0.0036
+BATTERY_AWARE,53,13.1,160,60.6,3e-06,2.0,2.0,98.0,96.36,98.91,False,1,500,0.0031
+ITEREV,42,14.8,185,58.3,3e-06,2.0,2.0,98.0,96.36,98.91,False,1,500,0.0038

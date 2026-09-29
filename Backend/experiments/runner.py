@@ -1,165 +1,117 @@
 """
-Experiment Runner — Executes all research experiments.
+Experiment Runner — CLI for running all IterEV research experiments.
 
 Usage:
-    cd Backend
-    python -m experiments.runner [--experiment NAME] [--quick]
+    python -m experiments.runner              # All experiments (full)
+    python -m experiments.runner --quick      # All experiments (fast)
+    python -m experiments.runner -e ablation  # Single experiment
 
-Experiments:
-    baseline_comparison     — Compare 4 methods across standard scenario
-    soc_sensitivity         — FMR vs SOC sweep
-    soh_sensitivity         — FMR vs SOH sweep
-    temperature_sensitivity — FMR vs temperature sweep
-    demand_sensitivity      — FMR vs demand level sweep
-    charging_sensitivity    — FMR vs charging availability sweep
-    horizon_sensitivity     — FMR vs planning horizon sweep
-    uncertainty_sensitivity — FMR vs uncertainty level sweep
-    ablation                — Component ablation study
-    calibration             — FMR calibration / reliability assessment
-    mc_convergence          — Monte Carlo convergence analysis
-
-    all                     — Run everything
-
-Outputs:
-    experiments/results/*.csv
-    experiments/results/*.json (metadata)
+All results are saved to experiments/results/ as CSV + metadata JSON.
 """
 
-import sys
-import os
 import json
 import time
 import argparse
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
-# Add parent to path for module imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import numpy as np
-import pandas as pd
-
 from experiments.config import (
     ExperimentConfig,
-    SOC_VALUES,
-    SOH_VALUES,
-    TEMPERATURE_VALUES,
-    DEMAND_LEVELS,
-    CHARGING_AVAILABILITIES,
-    PLANNING_HORIZONS,
-    UNCERTAINTY_LEVELS,
-    MC_SAMPLE_SIZES,
+    SOC_VALUES, SOH_VALUES, TEMPERATURE_VALUES,
+    DEMAND_LEVELS, CHARGING_AVAILABILITIES, PLANNING_HORIZONS,
+    UNCERTAINTY_LEVELS, MC_SAMPLE_SIZES,
 )
-from experiments.baselines import run_baseline, METHODS
+from experiments.baselines import (
+    run_baseline, run_independent_validation, METHODS,
+)
 from experiments.metrics import compute_metrics
+from engines.uncertainty_engine import AblationFlags
 
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR = Path(__file__).parent / "results"
+RESULTS_DIR.mkdir(exist_ok=True)
 
 
-def _save_results(df: pd.DataFrame, name: str, config_info: dict):
-    """Save CSV results and JSON metadata."""
+def _save_results(df: pd.DataFrame, name: str, metadata: dict):
+    """Save experiment results as CSV + metadata JSON."""
     csv_path = RESULTS_DIR / f"{name}.csv"
     df.to_csv(csv_path, index=False)
 
-    meta = {
-        "experiment": name,
+    meta_path = RESULTS_DIR / f"{name}_metadata.json"
+    metadata.update({
         "timestamp": datetime.now().isoformat(),
-        "config": config_info,
         "rows": len(df),
         "columns": list(df.columns),
-    }
-    meta_path = RESULTS_DIR / f"{name}_metadata.json"
+        "model_version": "2.0.0-research",
+    })
     with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2, default=str)
+        json.dump(metadata, f, indent=2, default=str)
 
-    print(f"  Saved: {csv_path.name} ({len(df)} rows)")
+    print(f"  Saved: {name}.csv ({len(df)} rows)")
 
 
 def run_baseline_comparison(quick: bool = False):
-    """Experiment 1: Compare all 4 methods on the standard scenario."""
+    """Experiment 1: Compare all 4 methods on the same scenario."""
     print("\n=== Experiment 1: Baseline Comparison ===")
     config = ExperimentConfig(
         name="baseline_comparison",
-        scenario_count=1000 if quick else 5000,
+        scenario_count=500 if quick else 5000,
     )
 
     rows = []
     for method in METHODS:
-        print(f"  Running {method}...", end=" ", flush=True)
         result = run_baseline(method, config)
         metrics = compute_metrics(result)
-        metrics["method"] = method
-        metrics["route_name"] = result["route_name"]
         rows.append(metrics)
-        print(f"FMR={result['fmr']:.2f}%, time={result['computation_time_s']:.2f}s")
+        print(f"  Running {method}... FMR={result['fmr']:.2f}%, time={result['computation_time_s']:.2f}s")
 
     df = pd.DataFrame(rows)
     _save_results(df, "baseline_comparison", config.to_dict())
     return df
 
 
-def run_sensitivity(
-    param_name: str,
-    param_values: list,
-    config_field: str,
-    quick: bool = False,
-):
-    """Generic sensitivity analysis runner."""
+def run_sensitivity(param_name: str, values: list, config_key: str, quick: bool = False):
+    """Generic sensitivity experiment: sweep one parameter, run all methods."""
     print(f"\n=== Sensitivity: {param_name} ===")
-    config = ExperimentConfig(
+    rows = []
+    base = ExperimentConfig(
         name=f"{param_name}_sensitivity",
         scenario_count=500 if quick else 5000,
     )
 
-    rows = []
-    for val in param_values:
-        setattr(config, config_field, val)
+    for val in values:
+        config = ExperimentConfig(**{**base.to_dict(), config_key: val})
         for method in METHODS:
             result = run_baseline(method, config)
             metrics = compute_metrics(result)
-            metrics["method"] = method
             metrics[param_name] = val
             rows.append(metrics)
         print(f"  {param_name}={val}: done")
 
     df = pd.DataFrame(rows)
-    _save_results(df, f"{param_name}_sensitivity", config.to_dict())
+    _save_results(df, f"{param_name}_sensitivity", base.to_dict())
     return df
 
 
 def run_soc_sensitivity(quick: bool = False):
-    """Experiment 2: FMR vs SOC."""
     return run_sensitivity("soc", SOC_VALUES, "soc_initial", quick)
 
-
 def run_soh_sensitivity(quick: bool = False):
-    """Experiment 3: FMR vs SOH."""
     return run_sensitivity("soh", SOH_VALUES, "soh", quick)
 
-
 def run_temperature_sensitivity(quick: bool = False):
-    """Experiment 4: FMR vs temperature."""
     return run_sensitivity("temperature", TEMPERATURE_VALUES, "temperature", quick)
 
-
 def run_demand_sensitivity(quick: bool = False):
-    """Experiment 5: FMR vs future demand."""
     return run_sensitivity("demand", DEMAND_LEVELS, "demand", quick)
 
-
 def run_charging_sensitivity(quick: bool = False):
-    """Experiment 6: FMR vs charging availability."""
     return run_sensitivity("charging_availability", CHARGING_AVAILABILITIES, "charging_availability", quick)
 
-
 def run_horizon_sensitivity(quick: bool = False):
-    """Experiment 7: FMR vs planning horizon."""
     return run_sensitivity("planning_horizon", PLANNING_HORIZONS, "planning_horizon", quick)
 
-
 def run_uncertainty_sensitivity(quick: bool = False):
-    """Experiment 8: FMR vs uncertainty level."""
     return run_sensitivity("uncertainty", UNCERTAINTY_LEVELS, "uncertainty", quick)
 
 
@@ -167,34 +119,43 @@ def run_ablation(quick: bool = False):
     """
     Experiment 9: Ablation study.
 
-    Compare full IterEV against variants with components removed:
-      - Full IterEV (all components)
-      - Without future risk (mu_fmr = 0)
-      - Without battery consequence (lambda_battery = 0)
-      - Without uncertainty (uncertainty = "Low", charging_availability = 1.0)
-      - Without charging uncertainty (charging_availability = 1.0)
-      - Without demand uncertainty (demand = "Medium", fixed)
-      - Without SOH (soh = 100, no degradation effect)
+    Each variant EXPLICITLY DISABLES a component via AblationFlags.
+    This is NOT the same as reducing uncertainty level or setting SOH=100.
+    The flag prevents the stochastic component from being sampled at all.
+
+    All variants use the SAME seed, SAME scenario base, SAME routes.
+    Only the intended component changes.
     """
     print("\n=== Experiment 9: Ablation Study ===")
-    base = ExperimentConfig(
+    base_config = ExperimentConfig(
         name="ablation",
         scenario_count=500 if quick else 5000,
     )
 
+    # A0-A6: explicit ablation variants
     variants = {
-        "Full IterEV": {},
-        "No Future Risk": {"mu_fmr": 0.0},
-        "No Battery Term": {"lambda_battery": 0.0},
-        "No Uncertainty": {"uncertainty": "Low", "charging_availability": 1.0},
-        "No Charging Uncertainty": {"charging_availability": 1.0},
-        "No Demand Variation": {"demand": "Medium"},
-        "No SOH Effect": {"soh": 100.0},
+        "A0: Full IterEV": AblationFlags(),  # All enabled
+        "A1: No Future Risk": AblationFlags(use_future_risk=False),
+        "A2: No Battery Degradation": AblationFlags(use_battery_degradation=False),
+        "A3: No Energy/Env Uncertainty": AblationFlags(
+            use_energy_uncertainty=False,
+            use_temperature_uncertainty=False,
+            use_traffic_uncertainty=False,
+        ),
+        "A4: No Demand Uncertainty": AblationFlags(use_demand_uncertainty=False),
+        "A5: No Charging Uncertainty": AblationFlags(use_charging_uncertainty=False),
+        "A6: No Degradation Uncertainty": AblationFlags(use_degradation_uncertainty=False),
     }
 
     rows = []
-    for variant_name, overrides in variants.items():
-        config = ExperimentConfig(**{**base.to_dict(), **overrides, "name": variant_name})
+    for variant_name, ablation_flags in variants.items():
+        config = ExperimentConfig(**{**base_config.to_dict()})
+        config.ablation = ablation_flags
+
+        # For "No Future Risk", set mu_fmr=0 so optimizer ignores FMR
+        if not ablation_flags.use_future_risk:
+            config.mu_fmr = 0.0
+
         result = run_baseline("ITEREV", config)
         metrics = compute_metrics(result)
         metrics["variant"] = variant_name
@@ -203,109 +164,104 @@ def run_ablation(quick: bool = False):
         print(f"  {variant_name}: FMR={result['fmr']:.2f}%")
 
     df = pd.DataFrame(rows)
-    _save_results(df, "ablation", base.to_dict())
+    _save_results(df, "ablation", base_config.to_dict())
     return df
 
 
 def run_calibration(quick: bool = False):
     """
-    Experiment 10: Risk calibration.
+    Experiment 10: Independent calibration validation.
 
-    Compare predicted FMR against empirical failure frequency from
-    independent simulation runs.
+    CORRECT DESIGN (Bug #4 fix):
+      Stage A: Estimate FMR using estimation seed (seed=42, N=5000)
+      Stage B: Observe actual failure using INDEPENDENT validation seed
+               (seed=4242, N=20000)
 
-    Method:
-      1. For a range of SOC values, compute predicted FMR
-      2. For each SOC, run N independent simulations to observe actual failure
-      3. Compare predicted vs observed
+    The validation scenarios are NEVER used for FMR estimation.
+    The observed failure rate comes from actual simulated future failures,
+    NOT from checking if predicted_fmr > epsilon.
     """
-    print("\n=== Experiment 10: Calibration ===")
-    n_sims = 20 if quick else 100
-    config = ExperimentConfig(
-        name="calibration",
-        scenario_count=500 if quick else 2000,
-    )
+    print("\n=== Experiment 10: Independent Calibration ===")
+    n_estimation = 500 if quick else 5000
+    n_validation = 2000 if quick else 20000
 
     rows = []
     for soc in SOC_VALUES:
-        config.soc_initial = soc
+        config = ExperimentConfig(
+            name="calibration",
+            scenario_count=n_estimation,
+            soc_initial=soc,
+            random_seed=42,  # Estimation seed
+        )
 
-        # Predicted FMR
+        # Stage A: Predict FMR with estimation seed
         result = run_baseline("ITEREV", config)
         predicted_fmr = result["fmr"]
 
-        # Observed failure: run N independent experiments with different seeds
-        failures = 0
-        for trial in range(n_sims):
-            trial_config = ExperimentConfig(
-                **{**config.to_dict(),
-                   "random_seed": 1000 + trial,
-                   "scenario_count": 200 if quick else 1000}
-            )
-            trial_result = run_baseline("ITEREV", trial_config)
-            # Consider it a "failure" if FMR > epsilon (constraint violated)
-            if trial_result["fmr"] / 100.0 > config.epsilon_fmr:
-                failures += 1
-
-        observed_failure_rate = failures / n_sims * 100.0
-        calibration_error = abs(predicted_fmr - observed_failure_rate)
+        # Stage B: Independent validation with different seed
+        val = run_independent_validation(
+            "ITEREV", config,
+            validation_seed=4242,
+            validation_count=n_validation,
+        )
+        observed_failure = val["observed_failure_rate"]
+        cal_error = abs(predicted_fmr - observed_failure)
 
         rows.append({
             "soc": soc,
             "predicted_fmr": round(predicted_fmr, 2),
-            "observed_failure_rate": round(observed_failure_rate, 2),
-            "calibration_error": round(calibration_error, 2),
-            "n_simulations": n_sims,
+            "observed_failure_rate": round(observed_failure, 2),
+            "calibration_error": round(cal_error, 2),
+            "estimation_scenarios": n_estimation,
+            "estimation_seed": 42,
+            "validation_scenarios": n_validation,
+            "validation_seed": 4242,
+            "val_ci_lower": round(val["validation_ci_lower"], 2),
+            "val_ci_upper": round(val["validation_ci_upper"], 2),
         })
-        print(f"  SOC={soc}: predicted={predicted_fmr:.2f}%, observed={observed_failure_rate:.2f}%")
+        print(f"  SOC={soc}: predicted={predicted_fmr:.2f}%, observed={observed_failure:.2f}%, error={cal_error:.2f}pp")
 
     df = pd.DataFrame(rows)
-    _save_results(df, "calibration", config.to_dict())
+    _save_results(df, "calibration", {"estimation_seed": 42, "validation_seed": 4242,
+                                       "estimation_N": n_estimation, "validation_N": n_validation})
     return df
 
 
 def run_mc_convergence(quick: bool = False):
     """
-    Experiment 11: Monte Carlo convergence.
-
-    Verify FMR estimate stability across different sample sizes.
+    Experiment 11: Monte Carlo convergence analysis.
+    Measures FMR stability as N increases.
     """
     print("\n=== Experiment 11: Monte Carlo Convergence ===")
-    config = ExperimentConfig(name="mc_convergence")
-
-    sample_sizes = [100, 500, 1000] if quick else MC_SAMPLE_SIZES
+    sizes = [100, 500, 1000] if quick else MC_SAMPLE_SIZES
 
     rows = []
-    for n in sample_sizes:
-        config.scenario_count = n
+    for n in sizes:
+        config = ExperimentConfig(
+            name="mc_convergence",
+            scenario_count=n,
+        )
+        t0 = time.perf_counter()
+        result = run_baseline("ITEREV", config)
+        t1 = time.perf_counter()
 
-        # Run multiple times with different seeds to measure variance
-        fmr_values = []
-        times = []
-        for trial in range(5 if quick else 10):
-            config.random_seed = 42 + trial
-            result = run_baseline("ITEREV", config)
-            fmr_values.append(result["fmr"])
-            times.append(result["computation_time_s"])
-
+        ci_width = result["fmr_ci_upper"] - result["fmr_ci_lower"]
         rows.append({
-            "sample_size": n,
-            "fmr_mean": round(float(np.mean(fmr_values)), 4),
-            "fmr_std": round(float(np.std(fmr_values)), 4),
-            "fmr_min": round(float(np.min(fmr_values)), 4),
-            "fmr_max": round(float(np.max(fmr_values)), 4),
-            "runtime_mean_s": round(float(np.mean(times)), 4),
-            "runtime_std_s": round(float(np.std(times)), 4),
+            "N": n,
+            "fmr": round(result["fmr"], 4),
+            "fmr_ci_lower": round(result["fmr_ci_lower"], 4),
+            "fmr_ci_upper": round(result["fmr_ci_upper"], 4),
+            "ci_width": round(ci_width, 4),
+            "computation_time_s": round(t1 - t0, 3),
         })
-        print(f"  N={n}: FMR={np.mean(fmr_values):.4f}% ± {np.std(fmr_values):.4f}%, "
-              f"time={np.mean(times):.3f}s")
+        print(f"  N={n}: FMR={result['fmr']:.4f}% +/- {ci_width/2:.4f}%, time={t1-t0:.3f}s")
 
     df = pd.DataFrame(rows)
-    _save_results(df, "monte_carlo_convergence", config.to_dict())
+    _save_results(df, "monte_carlo_convergence", {"seed": 42, "sample_sizes": sizes})
     return df
 
 
-# ─── Experiment Registry ───────────────────────────────────────────────────
+# ─── CLI ────────────────────────────────────────────────────────────────────
 
 EXPERIMENTS = {
     "baseline_comparison": run_baseline_comparison,
@@ -313,8 +269,8 @@ EXPERIMENTS = {
     "soh_sensitivity": run_soh_sensitivity,
     "temperature_sensitivity": run_temperature_sensitivity,
     "demand_sensitivity": run_demand_sensitivity,
-    "charging_sensitivity": run_charging_sensitivity,
-    "horizon_sensitivity": run_horizon_sensitivity,
+    "charging_availability_sensitivity": run_charging_sensitivity,
+    "planning_horizon_sensitivity": run_horizon_sensitivity,
     "uncertainty_sensitivity": run_uncertainty_sensitivity,
     "ablation": run_ablation,
     "calibration": run_calibration,
@@ -322,35 +278,34 @@ EXPERIMENTS = {
 }
 
 
-def run_all(quick: bool = False):
-    """Run all experiments."""
+def main():
+    parser = argparse.ArgumentParser(description="IterEV Research Experiments")
+    parser.add_argument("--quick", action="store_true", help="Quick mode (fewer scenarios)")
+    parser.add_argument("-e", "--experiment", choices=list(EXPERIMENTS.keys()),
+                        help="Run a single experiment")
+    parser.add_argument("--random-seed", type=int, default=42)
+    args = parser.parse_args()
+
     print(f"\n{'='*60}")
     print(f"IterEV Research Experiments")
-    print(f"Mode: {'QUICK' if quick else 'FULL'}")
+    print(f"Mode: {'QUICK' if args.quick else 'FULL'}")
     print(f"Time: {datetime.now().isoformat()}")
     print(f"{'='*60}")
 
     t_start = time.perf_counter()
-    for name, fn in EXPERIMENTS.items():
-        fn(quick=quick)
-    t_total = time.perf_counter() - t_start
 
+    if args.experiment:
+        EXPERIMENTS[args.experiment](args.quick)
+    else:
+        for name, func in EXPERIMENTS.items():
+            func(args.quick)
+
+    t_total = time.perf_counter() - t_start
     print(f"\n{'='*60}")
     print(f"All experiments complete in {t_total:.1f}s")
-    print(f"Results: {RESULTS_DIR}")
+    print(f"Results: {RESULTS_DIR.resolve()}")
     print(f"{'='*60}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="IterEV Experiment Runner")
-    parser.add_argument("--experiment", "-e", default="all",
-                       choices=list(EXPERIMENTS.keys()) + ["all"],
-                       help="Which experiment to run")
-    parser.add_argument("--quick", "-q", action="store_true",
-                       help="Quick mode: fewer scenarios for fast iteration")
-    args = parser.parse_args()
-
-    if args.experiment == "all":
-        run_all(quick=args.quick)
-    else:
-        EXPERIMENTS[args.experiment](quick=args.quick)
+    main()
