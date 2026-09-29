@@ -46,7 +46,7 @@ def run_baseline(
     t_start = time.perf_counter()
 
     demand_mult = DEMAND_MULTIPLIER.get(config.demand, 1.0)
-    future_trips = build_standard_trips(demand_mult, config.planning_horizon)
+    future_trips = build_standard_trips(config.planning_horizon)
 
     # Compute all routes under given conditions
     route_data = []
@@ -185,7 +185,7 @@ def run_independent_validation(
     Returns dict with 'observed_failure_rate' from actual simulation.
     """
     demand_mult = DEMAND_MULTIPLIER.get(config.demand, 1.0)
-    future_trips = build_standard_trips(demand_mult, config.planning_horizon)
+    future_trips = build_standard_trips(config.planning_horizon)
 
     # First: select route using ESTIMATION seed
     baseline_result = run_baseline(method, config)

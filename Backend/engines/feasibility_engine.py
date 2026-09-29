@@ -354,60 +354,65 @@ def compute_probabilistic_fmr(
                 #   = distance * combined_factor / base_efficiency
                 trip_energy = (adjusted_distance * combined_energy_factor) / efficiency_km_kwh
 
-                # SOC required for this trip (as %)
-                trip_soc_pct = (trip_energy / safe_usable) * 100.0 + safety_buffer_pct
+                # SOC consumption for this trip (as %) - PHYSICAL
+                trip_soc_consumption = (trip_energy / safe_usable) * 100.0
+                # Required SOC including safety reserve
+                trip_soc_req_pct = trip_soc_consumption + safety_buffer_pct
 
+                soc_before_trip = soc.copy()
+                
                 # For long trips: check if en-route charging can bridge the gap
                 is_long = adjusted_distance > MAX_SINGLE_CHARGE_KM
                 if np.any(is_long):
-                    # Check departure feasibility for long trips
-                    departure_feasible = soc >= LONG_TRIP_DEPARTURE_SOC_MIN
-                    
-                    # Calculate required charging energy if needed
-                    current_energy = (soc * safe_usable / 100.0)
+                    # Step 1: trip_energy (already computed)
+                    # Step 2: energy_required_with_reserve
                     trip_energy_required = trip_energy + (safety_buffer_pct * safe_usable / 100.0)
-                    energy_deficit = np.maximum(0, trip_energy_required - current_energy)
                     
-                    # Charging duration based on deficit (assume DEFAULT_CHARGER_POWER_KW)
-                    charging_duration_min = (energy_deficit / DEFAULT_CHARGER_POWER_KW) * 60.0
+                    # Step 3: energy_available_before_charge
+                    current_energy = (soc_before_trip * safe_usable / 100.0)
                     
-                    # For long trips that need charging, apply charging explicitly
-                    needs_charging = energy_deficit > 0
-                    should_charge = is_long & needs_charging
+                    # Step 4: required_charge
+                    required_charge = np.maximum(0.0, trip_energy_required - current_energy)
                     
-                    # Only apply charge where charger is available and we actually charge and can depart
-                    actual_charge_available = charger_avail & should_charge & departure_feasible
+                    # Step 5: maximum_charge (assume 30 min stop)
+                    available_time_hrs = 0.5
+                    maximum_charge = DEFAULT_CHARGER_POWER_KW * available_time_hrs * CHARGING_EFFICIENCY
                     
-                    # State transition: INCREASE SOC FIRST (en-route charging)
-                    soc = compute_soc_after_charging_vec(
-                        soc_before=soc,
-                        charging_duration_min=charging_duration_min,
-                        soh=soh_arr,
-                        charger_available=actual_charge_available,
-                        capacity_kwh=capacity_kwh
-                    )
+                    # Step 6 & 7: actual_charge
+                    actual_charge = np.where(charger_avail, np.minimum(required_charge, maximum_charge), 0.0)
                     
-                    # Recompute if we still fail after charging opportunity
-                    trip_infeasible = np.where(is_long, ~(departure_feasible & (~needs_charging | charger_avail)), soc < trip_soc_pct)
+                    # Step 8: Apply actual charge to SOC
+                    soc_gain = (actual_charge / safe_usable) * 100.0
+                    soc = np.minimum(MAX_CHARGING_SOC, soc_before_trip + soc_gain)
+                    
+                    # Step 9: energy_available_after_charge
+                    energy_available_after_charge = (soc * safe_usable / 100.0)
+                    
+                    # Step 10: trip feasible if energy_available >= required
+                    departure_feasible = soc_before_trip >= LONG_TRIP_DEPARTURE_SOC_MIN
+                    long_trip_infeasible = (energy_available_after_charge < trip_energy_required) | ~departure_feasible
+                    
+                    trip_infeasible = np.where(is_long, long_trip_infeasible, soc < trip_soc_req_pct)
                 else:
-                    trip_infeasible = soc < trip_soc_pct
+                    trip_infeasible = soc < trip_soc_req_pct
 
-                # Also fail if SOC would drop below minimum operational level
-                soc_after_trip = soc - (trip_energy / safe_usable) * 100.0
+                # Also fail if SOC would drop below minimum operational level (0.0% is minimum operational)
+                # Note: MIN_OPERATIONAL_SOC is usually 0, but this checks hard minimums
+                soc_after_trip = soc - trip_soc_consumption
                 trip_infeasible |= (soc_after_trip < MIN_OPERATIONAL_SOC)
 
                 # Track scenario-level metrics
-                soc_before_trip = soc.copy()
+                # Diagnostics: `trip_soc_req_matrix` should represent required SOC before trip
                 trip_failed_matrix[:, trip_idx] = trip_infeasible
                 trip_soc_avail_matrix[:, trip_idx] = soc_before_trip
-                trip_soc_req_matrix[:, trip_idx] = trip_soc_pct
+                trip_soc_req_matrix[:, trip_idx] = trip_soc_req_pct
 
                 # Mark failed scenarios
                 scenario_failed |= trip_infeasible
 
-                # ── STATE CHANGE: subtract trip energy from SOC ──
-                # Even for failed scenarios, consume what's available (for diagnostics)
-                soc = np.maximum(0.0, soc - trip_soc_pct)
+                # ── STATE CHANGE: subtract ONLY PHYSICAL trip energy from SOC ──
+                # SAFETY_SOC_BUFFER_PCT must never be subtracted as physical energy
+                soc = np.maximum(0.0, soc - trip_soc_consumption)
 
                 # ── SOH degradation from trip ──
                 if abl.use_battery_degradation:

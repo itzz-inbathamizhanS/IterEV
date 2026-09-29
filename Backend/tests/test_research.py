@@ -649,6 +649,105 @@ class TestAblationFlags:
         assert np.all(s.degradation_noise == 1.0), "Degradation noise should be 1.0"
 
 
+class TestLongTripCharging:
+    def test_long_trip_no_charger(self):
+        """Test A — no charger: Insufficient battery + unavailable charger = must fail."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+        
+        trip = FutureTrip(id="long", day="TOMORROW", origin="A", destination="B", distance_km=800, priority="CRITICAL")
+        # Ensure initial battery is insufficient for 800km but sufficient for LONG_TRIP_DEPARTURE_SOC_MIN (e.g. >50%)
+        # 60% SOC is sufficient to start, but not finish 800km.
+        r = compute_probabilistic_fmr(60.0, 100.0, [trip], scenario_count=100, charging_availability=0.0)
+        assert r.fmr == 100.0, "Long trip with no charger must fail"
+
+    def test_long_trip_sufficient_charger(self):
+        """Test B — sufficient charger: Insufficient initial battery + charger = can become feasible."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+        
+        trip = FutureTrip(id="long", day="TOMORROW", origin="A", destination="B", distance_km=450, priority="CRITICAL")
+        # 60% SOC is not enough for 450km (range ~400km), but with charging it should be feasible
+        r = compute_probabilistic_fmr(60.0, 100.0, [trip], scenario_count=100, charging_availability=1.0)
+        assert r.fmr < 100.0, "Long trip with sufficient charger should become feasible"
+
+    def test_long_trip_insufficient_charger_duration(self):
+        """Test C — insufficient charger duration: Charger available but max energy insufficient = must still fail."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+        
+        trip = FutureTrip(id="long", day="TOMORROW", origin="A", destination="B", distance_km=2500, priority="CRITICAL")
+        # 2500km is impossible with a single 30-minute charging stop
+        r = compute_probabilistic_fmr(100.0, 100.0, [trip], scenario_count=100, charging_availability=1.0)
+        assert r.fmr == 100.0, "Long trip with insufficient max charge should still fail"
+
+    def test_charging_state_transition(self):
+        """Test D & E — charging state transition and energy conservation."""
+        from engines.charging_engine import compute_soc_after_charging_vec
+        from models.constants import CHARGING_EFFICIENCY, DEFAULT_CHARGER_POWER_KW
+        import numpy as np
+        
+        soc_before = np.array([40.0])
+        duration = 30.0 # 30 mins
+        soh = np.array([100.0])
+        avail = np.array([True])
+        cap = 80.0
+        
+        soc_after = compute_soc_after_charging_vec(soc_before, duration, soh, avail, cap)
+        
+        # Test D: Verify SOC_after_charge > SOC_before_charge
+        assert np.all(soc_after > soc_before), "Valid charging must increase SOC"
+        
+        # Test E: Verify charge_energy <= charger_power * time * efficiency
+        added_energy = (soc_after - soc_before) / 100.0 * cap
+        max_energy = DEFAULT_CHARGER_POWER_KW * (duration / 60.0) * CHARGING_EFFICIENCY
+        assert np.all(added_energy <= max_energy + 1e-6), "Added energy exceeds physical limit"
+
+    def test_safety_buffer_not_consumed(self):
+        """Test F — safety buffer: Changing buffer does NOT change physical consumption but changes feasibility."""
+        from engines.feasibility_engine import compute_probabilistic_fmr
+        from models.schemas import FutureTrip
+        
+        trip = FutureTrip(id="trip", day="TOMORROW", origin="A", destination="B", distance_km=150, priority="CRITICAL")
+        
+        r_0 = compute_probabilistic_fmr(50.0, 100.0, [trip], scenario_count=10, safety_buffer_pct=0.0)
+        r_20 = compute_probabilistic_fmr(50.0, 100.0, [trip], scenario_count=10, safety_buffer_pct=20.0)
+        r_40 = compute_probabilistic_fmr(50.0, 100.0, [trip], scenario_count=10, safety_buffer_pct=40.0)
+        
+        # Feasibility threshold changes
+        assert r_0.fmr <= r_20.fmr
+        assert r_20.fmr <= r_40.fmr
+        
+        # But physical consumption (SOC available after trip) must NOT be reduced by the safety buffer
+        assert r_0.trip_details[0].soc_available == r_20.trip_details[0].soc_available
+        assert r_20.trip_details[0].soc_available == r_40.trip_details[0].soc_available
+
+
+class TestDemandScaling:
+    def test_demand_scaling_not_doubled(self):
+        from experiments.scenarios import build_standard_trips
+        from engines.uncertainty_engine import generate_scenarios, AblationFlags
+        
+        # 1. Base trips should NOT be scaled
+        trips = build_standard_trips(planning_horizon=5)
+        t1 = next(t for t in trips if t.id == "exp_1")
+        assert t1.distance_km == 300.0, "Base trip distance should remain exactly 300.0"
+        
+        # 2. Demand scenarios should scale linearly
+        abl = AblationFlags(use_demand_uncertainty=False)
+        s_low = generate_scenarios(10, 5, demand_level="Low", ablation=abl)
+        s_med = generate_scenarios(10, 5, demand_level="Medium", ablation=abl)
+        s_high = generate_scenarios(10, 5, demand_level="High", ablation=abl)
+        s_very = generate_scenarios(10, 5, demand_level="Very High", ablation=abl)
+        
+        # Verify the multiplier is linear, not squared
+        import numpy as np
+        assert np.allclose(s_low.demand_multipliers, 0.7)
+        assert np.allclose(s_med.demand_multipliers, 1.0)
+        assert np.allclose(s_high.demand_multipliers, 1.4)
+        assert np.allclose(s_very.demand_multipliers, 1.8)
+
+
 class TestCausalMonotonicity:
     """§54: Causal direction checks — verify expected monotonicity."""
 

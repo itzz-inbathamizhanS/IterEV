@@ -148,6 +148,7 @@ def run_ablation(quick: bool = False):
     }
 
     rows = []
+    base_fmr = None
     for variant_name, ablation_flags in variants.items():
         config = ExperimentConfig(**{**base_config.to_dict()})
         config.ablation = ablation_flags
@@ -160,8 +161,17 @@ def run_ablation(quick: bool = False):
         metrics = compute_metrics(result)
         metrics["variant"] = variant_name
         metrics["route_name"] = result["route_name"]
+        
+        if variant_name == "A0: Full IterEV":
+            base_fmr = result['fmr']
+            print(f"  {variant_name}: FMR={result['fmr']:.2f}%")
+        else:
+            if abs(result['fmr'] - base_fmr) < 0.01:
+                print(f"  {variant_name}: FMR={result['fmr']:.2f}% (effect not detectable under this scenario)")
+            else:
+                print(f"  {variant_name}: FMR={result['fmr']:.2f}%")
+                
         rows.append(metrics)
-        print(f"  {variant_name}: FMR={result['fmr']:.2f}%")
 
     df = pd.DataFrame(rows)
     _save_results(df, "ablation", base_config.to_dict())
@@ -186,11 +196,25 @@ def run_calibration(quick: bool = False):
     n_validation = 2000 if quick else 20000
 
     rows = []
-    for soc in SOC_VALUES:
+    cases = [
+        # Low risk: High SOC, perfect SOH, low demand, full charging
+        {"name": "LOW_RISK", "soc": 90, "soh": 100, "demand": "Low", "charging": 1.0},
+        # Low-moderate: Good SOC, slight degradation, medium demand
+        {"name": "LOW_MODERATE", "soc": 70, "soh": 95, "demand": "Medium", "charging": 0.95},
+        # Moderate: Lower SOC, moderate degradation, high demand, limited charging
+        {"name": "MODERATE", "soc": 50, "soh": 90, "demand": "High", "charging": 0.50},
+        # High risk: Low SOC, bad degradation, very high demand, no charging
+        {"name": "HIGH_RISK", "soc": 30, "soh": 80, "demand": "Very High", "charging": 0.10},
+    ]
+
+    for case in cases:
         config = ExperimentConfig(
-            name="calibration",
+            name=f"calibration_{case['name']}",
             scenario_count=n_estimation,
-            soc_initial=soc,
+            soc_initial=case["soc"],
+            soh=case["soh"],
+            demand=case["demand"],
+            charging_availability=case["charging"],
             random_seed=42,  # Estimation seed
         )
 
@@ -208,7 +232,11 @@ def run_calibration(quick: bool = False):
         cal_error = abs(predicted_fmr - observed_failure)
 
         rows.append({
-            "soc": soc,
+            "case": case["name"],
+            "soc": case["soc"],
+            "soh": case["soh"],
+            "demand": case["demand"],
+            "charging": case["charging"],
             "predicted_fmr": round(predicted_fmr, 2),
             "observed_failure_rate": round(observed_failure, 2),
             "calibration_error": round(cal_error, 2),
@@ -219,7 +247,8 @@ def run_calibration(quick: bool = False):
             "val_ci_lower": round(val["validation_ci_lower"], 2),
             "val_ci_upper": round(val["validation_ci_upper"], 2),
         })
-        print(f"  SOC={soc}: predicted={predicted_fmr:.2f}%, observed={observed_failure:.2f}%, error={cal_error:.2f}pp")
+        print(f"  {case['name']} (SOC={case['soc']}, SOH={case['soh']}, Dem={case['demand']}, Chg={case['charging']}): "
+              f"predicted={predicted_fmr:.2f}%, observed={observed_failure:.2f}%, error={cal_error:.2f}pp")
 
     df = pd.DataFrame(rows)
     _save_results(df, "calibration", {"estimation_seed": 42, "validation_seed": 4242,

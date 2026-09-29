@@ -1,5 +1,5 @@
 method,travel_time,energy_consumption,monetary_cost,soc_after,soh_loss,future_success_rate,fmf,fmr,fmr_ci_lower,fmr_ci_upper,constraint_feasible,constraint_violations,total_scenarios,computation_time_s
-FASTEST,42,14.8,185,58.3,3e-06,36.58,36.58,63.42,62.08,64.74,False,1,5000,0.0233
-ENERGY_MIN,53,13.1,160,60.6,3e-06,36.58,36.58,63.42,62.08,64.74,False,1,5000,0.0218
-BATTERY_AWARE,53,13.1,160,60.6,3e-06,36.58,36.58,63.42,62.08,64.74,False,1,5000,0.021
-ITEREV,42,14.8,185,58.3,3e-06,36.58,36.58,63.42,62.08,64.74,False,1,5000,0.0208
+FASTEST,42,14.8,185,58.3,3e-06,56.64,56.64,43.36,41.99,44.74,False,1,5000,0.0198
+ENERGY_MIN,53,13.1,160,60.6,3e-06,57.7,57.7,42.3,40.94,43.67,False,1,5000,0.0197
+BATTERY_AWARE,53,13.1,160,60.6,3e-06,57.7,57.7,42.3,40.94,43.67,False,1,5000,0.0211
+ITEREV,53,13.1,160,60.6,3e-06,57.7,57.7,42.3,40.94,43.67,False,1,5000,0.0213

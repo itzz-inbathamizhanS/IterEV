@@ -1,9 +1,5 @@
-soc,predicted_fmr,observed_failure_rate,calibration_error,estimation_scenarios,estimation_seed,validation_scenarios,validation_seed,val_ci_lower,val_ci_upper
-20,63.42,63.28,0.14,5000,42,20000,4242,62.6,63.94
-30,63.42,63.28,0.14,5000,42,20000,4242,62.6,63.94
-40,63.42,63.28,0.14,5000,42,20000,4242,62.6,63.94
-50,63.42,63.28,0.14,5000,42,20000,4242,62.6,63.94
-60,63.42,63.28,0.14,5000,42,20000,4242,62.6,63.94
-70,63.42,63.28,0.14,5000,42,20000,4242,62.6,63.94
-80,63.36,63.23,0.13,5000,42,20000,4242,62.56,63.9
-90,63.02,62.95,0.07,5000,42,20000,4242,62.28,63.62
+case,soc,soh,demand,charging,predicted_fmr,observed_failure_rate,calibration_error,estimation_scenarios,estimation_seed,validation_scenarios,validation_seed,val_ci_lower,val_ci_upper
+LOW_RISK,90,100,Low,1.0,0.18,0.27,0.09,5000,42,20000,4242,0.21,0.36
+LOW_MODERATE,70,95,Medium,0.95,40.54,40.87,0.33,5000,42,20000,4242,40.19,41.55
+MODERATE,50,90,High,0.5,99.9,99.92,0.02,5000,42,20000,4242,99.87,99.95
+HIGH_RISK,30,80,Very High,0.1,100.0,100.0,0.0,5000,42,20000,4242,99.98,100.0
