@@ -158,34 +158,19 @@ def _run_method(
     elif method == "BATTERY AWARE":
         chosen = max(route_results, key=lambda r: r["soc_after"])
     else:  # PROPOSED — full J(a) optimizer
-        max_time = max(r["time"] for r in route_results)
-        min_time = min(r["time"] for r in route_results)
-        max_cost = max(r["cost"] for r in route_results)
-        min_cost = min(r["cost"] for r in route_results)
-        max_fmr = max(r["fmr"] for r in route_results)
-        min_fmr = min(r["fmr"] for r in route_results)
-        max_soc = max(r["soc_after"] for r in route_results)
-        min_soc = min(r["soc_after"] for r in route_results)
-
-        def J(r: dict) -> float:
-            t_range = max(max_time - min_time, 1)
-            c_range = max(max_cost - min_cost, 1)
-            fmr_range = max(max_fmr - min_fmr, 0.001)
-            soc_range = max(max_soc - min_soc, 0.001)
-            
-            t_norm = (r["time"] - min_time) / t_range
-            c_norm = (r["cost"] - min_cost) / c_range
-            current_cost = 0.5 * t_norm + 0.5 * c_norm
-            
-            fmr_norm = (r["fmr"] - min_fmr) / fmr_range
-            soc_norm = (r["soc_after"] - min_soc) / soc_range
-            battery_consequence = 1.0 - soc_norm
-            return current_cost + battery_consequence * LAMBDA_BATTERY + fmr_norm * MU_FMR
-
-        # Filter feasible routes first
-        feasible = [r for r in route_results if (r["fmr"] / 100.0) <= EPSILON_FMR]
-        candidates = feasible if feasible else route_results
-        chosen = min(candidates, key=J)
+        from models.schemas import RouteCandidate
+        from engines.optimizer import select_recommended
+        
+        candidates = [
+            RouteCandidate(
+                id=str(i), name="Route", time=r["time"], cost=r["cost"],
+                energy=r["energy"], feasibility=r["fmf"], fmr=r["fmr"],
+                after=r["soc_after"], tomorrow=r["soc_after"] - 5.0, recommended=False
+            ) for i, r in enumerate(route_results)
+        ]
+        
+        rec_id, scores, status = select_recommended(candidates)
+        chosen = route_results[int(rec_id)]
 
     return MethodComparisonRow(
         method=method,

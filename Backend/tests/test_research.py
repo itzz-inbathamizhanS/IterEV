@@ -308,6 +308,39 @@ class TestChargingEngine:
         assert soc > 20.0
         assert soc <= 95.0
 
+    def test_charging_cannot_create_energy(self):
+        from engines.charging_engine import compute_soc_after_charging_vec
+        import numpy as np
+        
+        # Test 1: Charger unavailable
+        soc = np.array([20.0])
+        soh = np.array([94.0])
+        avail = np.array([False])
+        after = compute_soc_after_charging_vec(soc, 60.0, soh, avail)
+        assert np.all(after == soc)
+        
+        # Test 2: Zero time
+        avail = np.array([True])
+        after = compute_soc_after_charging_vec(soc, 0.0, soh, avail)
+        assert np.all(after == soc)
+        
+        # Test 3: Zero power
+        after = compute_soc_after_charging_vec(soc, 60.0, soh, avail, charger_power_kw=0.0)
+        assert np.all(after == soc)
+
+    def test_charging_max_soc_clamped(self):
+        from engines.charging_engine import compute_soc_after_charging_vec
+        from models.constants import MAX_CHARGING_SOC
+        import numpy as np
+        
+        soc = np.array([80.0])
+        soh = np.array([100.0])
+        avail = np.array([True])
+        # Massive time to force overcharge
+        after = compute_soc_after_charging_vec(soc, 600.0, soh, avail)
+        assert np.all(after <= MAX_CHARGING_SOC)
+        assert np.all(after == MAX_CHARGING_SOC)
+
 
 # ─── Optimizer Tests ────────────────────────────────────────────────────────
 
@@ -351,6 +384,42 @@ class TestOptimizer:
         rec_id, scores, status = select_recommended([])
         assert rec_id == ""
         assert scores == []
+
+    def test_optimizer_matches_baseline_logic(self):
+        from engines.optimizer import select_recommended, _normalize
+        from models.schemas import RouteCandidate
+        from models.constants import LAMBDA_BATTERY, MU_FMR
+        
+        c1 = RouteCandidate(id="1", name="R1", time=40.0, cost=100.0, energy=10.0, feasibility=90.0, fmr=10.0, after=50.0, tomorrow=45.0, recommended=False)
+        c2 = RouteCandidate(id="2", name="R2", time=50.0, cost=80.0, energy=12.0, feasibility=80.0, fmr=20.0, after=40.0, tomorrow=35.0, recommended=False)
+        routes = [c1, c2]
+        
+        # Optimizer score
+        rec_id, scores, status = select_recommended(routes, LAMBDA_BATTERY, MU_FMR, 0.5)
+        
+        # Manual identical calculation
+        t1_norm = _normalize(40, 40, 50)
+        c1_norm = _normalize(100, 80, 100)
+        cost_norm_1 = 0.5 * t1_norm + 0.5 * c1_norm
+        
+        t2_norm = _normalize(50, 40, 50)
+        c2_norm = _normalize(80, 80, 100)
+        cost_norm_2 = 0.5 * t2_norm + 0.5 * c2_norm
+        
+        fmr1_norm = _normalize(10, 10, 20)
+        fmr2_norm = _normalize(20, 10, 20)
+        
+        soc1_norm = _normalize(50, 40, 50)
+        soc2_norm = _normalize(40, 40, 50)
+        
+        j1 = cost_norm_1 + (1.0 - soc1_norm) * LAMBDA_BATTERY + fmr1_norm * MU_FMR
+        j2 = cost_norm_2 + (1.0 - soc2_norm) * LAMBDA_BATTERY + fmr2_norm * MU_FMR
+        
+        s1 = next(s for s in scores if s.route_id == "1")
+        s2 = next(s for s in scores if s.route_id == "2")
+        
+        assert abs(s1.total_J - j1) < 1e-6
+        assert abs(s2.total_J - j2) < 1e-6
 
 
 # ─── Integration Tests ─────────────────────────────────────────────────────
@@ -630,7 +699,25 @@ class TestCausalMonotonicity:
                           distance_km=100, priority="NORMAL")
         r = compute_probabilistic_fmr(60.0, 94.0, [trip], scenario_count=500, random_seed=42)
         assert abs(r.fmr + r.fmf - 100.0) < 0.1, f"FMR + FMF = {r.fmr + r.fmf}, expected ~100"
-
+class TestCalibration:
+    def test_independent_validation_route_matches(self):
+        from experiments.baselines import run_baseline, run_independent_validation
+        from experiments.config import ExperimentConfig
+        
+        config = ExperimentConfig(
+            soc_initial=80, soh=100, temperature=29, traffic="Medium", demand="Medium",
+            charging_availability=1.0, uncertainty="Medium", planning_horizon=5
+        )
+        
+        # Stage A: Run baseline directly to see what it picks
+        stage_a = run_baseline("ITEREV", config)
+        
+        # Stage B: Run independent validation
+        stage_b = run_independent_validation("ITEREV", config, validation_seed=9999, validation_count=100)
+        
+        # Ensure Stage B didn't secretly optimize a different route and change soc_after
+        assert stage_a["soc_after"] == stage_b["soc_after"], "Validation evaluated a different route than Stage A!"
+        assert abs(stage_a["soh_loss"] - (config.soh - stage_b["soh_after"])) < 1e-6
     def test_ci_bounds(self):
         """CI lower <= FMR <= CI upper."""
         from engines.feasibility_engine import compute_probabilistic_fmr

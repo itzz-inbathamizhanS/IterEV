@@ -132,3 +132,47 @@ def compute_soc_after_charging(
 
     soc_after = min(MAX_CHARGING_SOC, soc_before + delta_soc)
     return round(soc_after, 1)
+
+import numpy as np
+
+def compute_soc_after_charging_vec(
+    soc_before: np.ndarray,
+    charging_duration_min: np.ndarray,
+    soh: np.ndarray,
+    charger_available: np.ndarray,
+    capacity_kwh: float = NOMINAL_CAPACITY_KWH,
+    charger_power_kw: float = DEFAULT_CHARGER_POWER_KW,
+    charging_efficiency: float = CHARGING_EFFICIENCY,
+) -> np.ndarray:
+    """
+    Vectorized SOC computation after charging for Monte Carlo simulation.
+    Ensures charging cannot create energy from nowhere:
+    - Only adds energy if charger_available is True
+    - Time and power must be > 0
+    - SOC cannot exceed MAX_CHARGING_SOC
+    """
+    if charger_power_kw <= 0:
+        return soc_before.copy()
+        
+    usable_kwh = capacity_kwh * (soh / 100.0)
+    
+    # Grid energy based on power and time
+    # Time must be positive
+    valid_duration = np.maximum(0.0, charging_duration_min)
+    hours = valid_duration / 60.0
+    grid_energy = charger_power_kw * hours
+    
+    # Battery energy added
+    battery_energy = grid_energy * charging_efficiency
+    
+    # Calculate SOC gain
+    delta_soc = np.where(
+        (usable_kwh > 0) & charger_available, 
+        (battery_energy / np.maximum(usable_kwh, 0.01)) * 100.0, 
+        0.0
+    )
+    
+    # Add to current SOC and cap at MAX_CHARGING_SOC
+    soc_after = np.minimum(MAX_CHARGING_SOC, soc_before + delta_soc)
+    return soc_after
+

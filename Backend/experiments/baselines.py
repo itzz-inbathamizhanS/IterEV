@@ -125,31 +125,26 @@ def run_baseline(
     elif method == "BATTERY_AWARE":
         chosen = max(route_data, key=lambda r: r["soc_after"])
     elif method == "ITEREV":
-        max_time = max(r["time"] for r in route_data)
-        min_time = min(r["time"] for r in route_data)
-        max_cost = max(r["cost"] for r in route_data)
-        min_cost = min(r["cost"] for r in route_data)
-        max_fmr = max(r["fmr_prob"] for r in route_data)
-        min_fmr = min(r["fmr_prob"] for r in route_data)
-        max_soc = max(r["soc_after"] for r in route_data)
-        min_soc = min(r["soc_after"] for r in route_data)
-
-        def _norm(v, lo, hi):
-            return (v - lo) / max(hi - lo, 0.001)
-
-        def J(r):
-            t_n = _norm(r["time"], min_time, max_time)
-            c_n = _norm(r["cost"], min_cost, max_cost)
-            current_cost = 0.5 * t_n + 0.5 * c_n
-            
-            fmr_n = _norm(r["fmr_prob"], min_fmr, max_fmr)
-            soc_n = _norm(r["soc_after"], min_soc, max_soc)
-            bat = 1.0 - soc_n
-            return current_cost + bat * config.lambda_battery + fmr_n * config.mu_fmr
-
-        feasible = [r for r in route_data if r["constraint_feasible"]]
-        candidates = feasible if feasible else route_data
-        chosen = min(candidates, key=J)
+        from models.schemas import RouteCandidate
+        from engines.optimizer import select_recommended
+        
+        # Convert to RouteCandidate for optimizer
+        candidates = [
+            RouteCandidate(
+                id=r["id"], name=r["name"], time=r["time"], cost=r["cost"],
+                energy=r["energy"], feasibility=r["fmf_prob"], fmr=r["fmr_prob"],
+                after=r["soc_after"], tomorrow=r["soc_after"] - 5.0, recommended=False
+            ) for r in route_data
+        ]
+        
+        rec_id, scores, status = select_recommended(
+            candidates, 
+            lambda_battery=config.lambda_battery, 
+            mu_fmr=config.mu_fmr, 
+            epsilon_fmr=config.epsilon_fmr
+        )
+        
+        chosen = next(r for r in route_data if r["id"] == rec_id)
     else:
         chosen = route_data[0]
 
