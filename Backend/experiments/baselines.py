@@ -115,6 +115,7 @@ def run_baseline(
             "total_scenarios": fmr_result.total_scenarios,
             "failed_scenarios": fmr_result.failed_scenarios,
             "constraint_feasible": (fmr_result.fmr / 100.0) <= config.epsilon_fmr,
+            "failure_taxonomy": getattr(fmr_result, "failure_taxonomy", {}),
         })
 
     # Select route based on method objective
@@ -175,6 +176,7 @@ def run_baseline(
         "constraint_relaxed": not chosen["constraint_feasible"],
         "num_feasible_candidates": num_feasible,
         "selected_route_fmr": chosen["fmr_prob"],
+        "failure_taxonomy": chosen["failure_taxonomy"],
     }
 
 

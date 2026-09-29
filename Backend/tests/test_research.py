@@ -822,7 +822,7 @@ class TestCausalMonotonicity:
                           distance_km=100, priority="NORMAL")
         r = compute_probabilistic_fmr(60.0, 94.0, [trip], scenario_count=500, random_seed=42)
         assert abs(r.fmr + r.fmf - 100.0) < 0.1, f"FMR + FMF = {r.fmr + r.fmf}, expected ~100"
-class TestCalibration:
+class TestIndependentReplication:
     def test_independent_validation_route_matches(self):
         from experiments.baselines import run_baseline, run_independent_validation
         from experiments.config import ExperimentConfig

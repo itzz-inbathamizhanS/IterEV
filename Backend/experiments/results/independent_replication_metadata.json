@@ -1,0 +1,25 @@
+{
+  "estimation_seed": 42,
+  "validation_seed": 4242,
+  "estimation_N": 500,
+  "validation_N": 2000,
+  "timestamp": "2026-09-30T01:21:19.373463",
+  "rows": 4,
+  "columns": [
+    "case",
+    "soc",
+    "soh",
+    "demand",
+    "charging",
+    "predicted_fmr",
+    "observed_failure_rate",
+    "replication_error",
+    "estimation_scenarios",
+    "estimation_seed",
+    "validation_scenarios",
+    "validation_seed",
+    "val_ci_lower",
+    "val_ci_upper"
+  ],
+  "model_version": "2.0.0-research"
+}

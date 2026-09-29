@@ -13,6 +13,7 @@ import json
 import time
 import argparse
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from datetime import datetime
 
@@ -168,40 +169,53 @@ def run_ablation(quick: bool = False):
         "A6: No Degradation Uncertainty": AblationFlags(use_degradation_uncertainty=False),
     }
 
+    conditions = [
+        {"name": "High Stress", "demand": "High", "soc_initial": 50.0, "charging_availability": 0.5},
+        {"name": "Moderate", "demand": "Medium", "soc_initial": 80.0, "charging_availability": 0.9}
+    ]
+
     rows = []
-    base_fmr = None
-    for variant_name, ablation_flags in variants.items():
-        config = ExperimentConfig(**{**base_config.to_dict()})
-        config.ablation = ablation_flags
+    
+    for condition in conditions:
+        print(f"\n  Condition: {condition['name']}")
+        base_fmr = None
+        for variant_name, ablation_flags in variants.items():
+            config = ExperimentConfig(**{**base_config.to_dict()})
+            config.ablation = ablation_flags
+            config.demand = condition["demand"]
+            config.soc_initial = condition["soc_initial"]
+            config.charging_availability = condition["charging_availability"]
+            config.name = f"ablation_{condition['name'].lower().replace(' ', '_')}"
 
-        # For "No Future Risk", set mu_fmr=0 so optimizer ignores FMR
-        if not ablation_flags.use_future_risk:
-            config.mu_fmr = 0.0
+            # For "No Future Risk", set mu_fmr=0 so optimizer ignores FMR
+            if not ablation_flags.use_future_risk:
+                config.mu_fmr = 0.0
 
-        result = run_baseline("ITEREV", config)
-        metrics = compute_metrics(result)
-        metrics["variant"] = variant_name
-        metrics["route_name"] = result["route_name"]
-        
-        if variant_name == "A0: Full IterEV":
-            base_fmr = result['fmr']
-            print(f"  {variant_name}: FMR={result['fmr']:.2f}%")
-        else:
-            if abs(result['fmr'] - base_fmr) < 0.01:
-                print(f"  {variant_name}: FMR={result['fmr']:.2f}% (effect not detectable under this scenario)")
+            result = run_baseline("ITEREV", config)
+            metrics = compute_metrics(result)
+            metrics["condition"] = condition["name"]
+            metrics["variant"] = variant_name
+            metrics["route_name"] = result["route_name"]
+            
+            if variant_name == "A0: Full IterEV":
+                base_fmr = result['fmr']
+                print(f"    {variant_name}: FMR={result['fmr']:.2f}%")
             else:
-                print(f"  {variant_name}: FMR={result['fmr']:.2f}%")
-                
-        rows.append(metrics)
+                if abs(result['fmr'] - base_fmr) < 0.01:
+                    print(f"    {variant_name}: FMR={result['fmr']:.2f}% (effect not detectable under this scenario)")
+                else:
+                    print(f"    {variant_name}: FMR={result['fmr']:.2f}%")
+                    
+            rows.append(metrics)
 
     df = pd.DataFrame(rows)
     _save_results(df, "ablation", base_config.to_dict())
     return df
 
 
-def run_calibration(quick: bool = False):
+def run_independent_replication(quick: bool = False):
     """
-    Experiment 10: Independent calibration validation.
+    Experiment 10: Independent Monte Carlo Replication.
 
     CORRECT DESIGN (Bug #4 fix):
       Stage A: Estimate FMR using estimation seed (seed=42, N=5000)
@@ -212,7 +226,7 @@ def run_calibration(quick: bool = False):
     The observed failure rate comes from actual simulated future failures,
     NOT from checking if predicted_fmr > epsilon.
     """
-    print("\n=== Experiment 10: Independent Calibration ===")
+    print("\n=== Experiment 10: Independent Monte Carlo Replication ===")
     n_estimation = 500 if quick else 5000
     n_validation = 2000 if quick else 20000
 
@@ -230,7 +244,7 @@ def run_calibration(quick: bool = False):
 
     for case in cases:
         config = ExperimentConfig(
-            name=f"calibration_{case['name']}",
+            name=f"replication_{case['name']}",
             scenario_count=n_estimation,
             soc_initial=case["soc"],
             soh=case["soh"],
@@ -250,7 +264,7 @@ def run_calibration(quick: bool = False):
             validation_count=n_validation,
         )
         observed_failure = val["observed_failure_rate"]
-        cal_error = abs(predicted_fmr - observed_failure)
+        rep_error = abs(predicted_fmr - observed_failure)
 
         rows.append({
             "case": case["name"],
@@ -260,7 +274,7 @@ def run_calibration(quick: bool = False):
             "charging": case["charging"],
             "predicted_fmr": round(predicted_fmr, 2),
             "observed_failure_rate": round(observed_failure, 2),
-            "calibration_error": round(cal_error, 2),
+            "replication_error": round(rep_error, 2),
             "estimation_scenarios": n_estimation,
             "estimation_seed": 42,
             "validation_scenarios": n_validation,
@@ -269,10 +283,10 @@ def run_calibration(quick: bool = False):
             "val_ci_upper": round(val["validation_ci_upper"], 2),
         })
         print(f"  {case['name']} (SOC={case['soc']}, SOH={case['soh']}, Dem={case['demand']}, Chg={case['charging']}): "
-              f"predicted={predicted_fmr:.2f}%, observed={observed_failure:.2f}%, error={cal_error:.2f}pp")
+              f"predicted={predicted_fmr:.2f}%, observed={observed_failure:.2f}%, error={rep_error:.2f}pp")
 
     df = pd.DataFrame(rows)
-    _save_results(df, "calibration", {"estimation_seed": 42, "validation_seed": 4242,
+    _save_results(df, "independent_replication", {"estimation_seed": 42, "validation_seed": 4242,
                                        "estimation_N": n_estimation, "validation_N": n_validation})
     return df
 
@@ -286,6 +300,9 @@ def run_mc_convergence(quick: bool = False):
     sizes = [100, 500, 1000] if quick else MC_SAMPLE_SIZES
 
     rows = []
+    # To compare against largest-N estimate, we do it in a first pass or track them,
+    # but since it's sequential we can just compute it after.
+    temp_results = []
     for n in sizes:
         config = ExperimentConfig(
             name="mc_convergence",
@@ -294,24 +311,61 @@ def run_mc_convergence(quick: bool = False):
         t0 = time.perf_counter()
         result = run_baseline("ITEREV", config)
         t1 = time.perf_counter()
+        temp_results.append((n, result, t1 - t0))
 
+    # Reference is the largest N
+    ref_fmr = temp_results[-1][1]["fmr"]
+    tolerance = 0.5  # percent
+
+    for n, result, compute_time in temp_results:
         ci_width = result["fmr_ci_upper"] - result["fmr_ci_lower"]
+        rel_ci_width = ci_width / result["fmr"] if result["fmr"] > 0 else 0.0
+        abs_diff = abs(result["fmr"] - ref_fmr)
+        converged = abs_diff < tolerance
+        
+        # We also need failures. "failed_scenarios" is returned inside SimulationOutput? No, result from run_baseline doesn't have it directly.
+        # But we know FMR = failures / N -> failures = FMR / 100 * N
+        failures = int(round(result["fmr"] / 100.0 * n))
+
         rows.append({
             "N": n,
             "fmr": round(result["fmr"], 4),
             "fmr_ci_lower": round(result["fmr_ci_lower"], 4),
             "fmr_ci_upper": round(result["fmr_ci_upper"], 4),
-            "ci_width": round(ci_width, 4),
-            "computation_time_s": round(t1 - t0, 3),
+            "absolute_ci_width": round(ci_width, 4),
+            "relative_ci_width": round(rel_ci_width, 4),
+            "absolute_difference_from_ref": round(abs_diff, 4),
+            "converged": converged,
+            "failures": failures,
+            "computation_time_s": round(compute_time, 3),
         })
-        print(f"  N={n}: FMR={result['fmr']:.4f}% +/- {ci_width/2:.4f}%, time={t1-t0:.3f}s")
+        print(f"  N={n}: FMR={result['fmr']:.4f}% +/- {ci_width/2:.4f}%, time={compute_time:.3f}s")
 
     df = pd.DataFrame(rows)
-    _save_results(df, "monte_carlo_convergence", {"seed": 42, "sample_sizes": sizes})
+    _save_results(df, "mc_convergence", {"seed": 42, "sample_sizes": sizes, "tolerance_pct": tolerance})
     return df
 
 
 # ─── CLI ────────────────────────────────────────────────────────────────────
+
+def run_failure_taxonomy(quick: bool = False):
+    print("\n=== Experiment 15: Failure-Mode Taxonomy ===")
+    config = ExperimentConfig(
+        name="failure_taxonomy",
+        scenario_count=1000 if quick else 10000,
+        soc_initial=50.0,
+        demand="High",
+        charging_availability=0.2, # stress to generate failures
+    )
+    result = run_baseline("ITEREV", config)
+    taxonomy = result.get("failure_taxonomy", {})
+    
+    out_path = RESULTS_DIR / "failure_taxonomy.json"
+    with open(out_path, "w") as f:
+        json.dump(taxonomy, f, indent=2)
+    print(f"  Failure taxonomy saved to {out_path}")
+    print(json.dumps(taxonomy, indent=2))
+    return taxonomy
 
 EXPERIMENTS = {
     "baseline_comparison": run_baseline_comparison,
@@ -323,8 +377,9 @@ EXPERIMENTS = {
     "planning_horizon_sensitivity": run_horizon_sensitivity,
     "uncertainty_sensitivity": run_uncertainty_sensitivity,
     "ablation": run_ablation,
-    "calibration": run_calibration,
+    "independent_replication": run_independent_replication,
     "mc_convergence": run_mc_convergence,
+    "failure_taxonomy": run_failure_taxonomy,
 }
 
 
@@ -356,6 +411,20 @@ def main():
     print(f"Results: {RESULTS_DIR.resolve()}")
     print(f"{'='*60}")
 
+    # 14. Reproducibility Manifest
+    manifest = {
+        "timestamp": datetime.now().isoformat(),
+        "execution_mode": "QUICK" if args.quick else "FULL",
+        "random_seed": args.random_seed,
+        "experiments_run": list(EXPERIMENTS.keys()) if not args.experiment else [args.experiment],
+        "hardware_time_s": round(t_total, 3),
+        "dependency_versions": {
+            "numpy": np.__version__,
+            "pandas": pd.__version__,
+        }
+    }
+    with open(RESULTS_DIR / "reproducibility_manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
 
 if __name__ == "__main__":
     main()

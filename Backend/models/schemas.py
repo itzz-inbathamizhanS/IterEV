@@ -106,6 +106,7 @@ class FeasibilityResult(BaseModel):
     failed_scenarios: int = 0
     confidence_interval: Optional[ConfidenceInterval] = None
     random_seed: Optional[int] = None
+    failure_taxonomy: dict = {}
 
 
 class RouteCandidate(BaseModel):
@@ -129,6 +130,10 @@ class RouteCandidate(BaseModel):
     total_scenarios: int = 0
     constraint_feasible: bool = True      # Whether FMR ≤ ε
     constraint_relaxed: bool = False      # Whether constraint was relaxed
+    point_estimate_feasible: bool = True
+    upper_ci_feasible: bool = True
+    constraint_margin: float = 0.0
+    ci_crosses_constraint: bool = False
 
 
 class DecisionResult(BaseModel):

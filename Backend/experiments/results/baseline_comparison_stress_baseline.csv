@@ -1,5 +1,5 @@
 method,travel_time,energy_consumption,monetary_cost,soc_after,soh_loss,future_success_rate,fmf,fmr,fmr_ci_lower,fmr_ci_upper,constraint_feasible,constraint_violations,total_scenarios,computation_time_s,optimizer_status,constraint_relaxed,num_feasible_candidates,selected_route_fmr,scenario_type
-FASTEST,42,14.8,185,58.3,3e-06,56.64,56.64,43.36,41.99,44.74,False,1,5000,0.0213,N/A,True,0,43.36,STRESS_BASELINE
-ENERGY_MIN,53,13.1,160,60.6,3e-06,57.7,57.7,42.3,40.94,43.67,False,1,5000,0.019,N/A,True,0,42.3,STRESS_BASELINE
-BATTERY_AWARE,53,13.1,160,60.6,3e-06,57.7,57.7,42.3,40.94,43.67,False,1,5000,0.0188,N/A,True,0,42.3,STRESS_BASELINE
-ITEREV,53,13.1,160,60.6,3e-06,57.7,57.7,42.3,40.94,43.67,False,1,5000,0.0195,NO_FEASIBLE_ACTION,True,0,42.3,STRESS_BASELINE
+FASTEST,42,14.8,185,58.3,3e-06,38.0,38.0,62.0,57.67,66.15,False,1,500,0.0071,N/A,True,0,62.0,STRESS_BASELINE
+ENERGY_MIN,53,13.1,160,60.6,3e-06,38.2,38.2,61.8,57.47,65.95,False,1,500,0.0062,N/A,True,0,61.8,STRESS_BASELINE
+BATTERY_AWARE,53,13.1,160,60.6,3e-06,38.2,38.2,61.8,57.47,65.95,False,1,500,0.0068,N/A,True,0,61.8,STRESS_BASELINE
+ITEREV,48,13.9,172,59.5,3e-06,38.2,38.2,61.8,57.47,65.95,False,1,500,0.0068,NO_FEASIBLE_ACTION,True,0,61.8,STRESS_BASELINE

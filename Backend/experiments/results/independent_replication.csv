@@ -1,0 +1,5 @@
+case,soc,soh,demand,charging,predicted_fmr,observed_failure_rate,replication_error,estimation_scenarios,estimation_seed,validation_scenarios,validation_seed,val_ci_lower,val_ci_upper
+LOW_RISK,90,100,Low,1.0,0.4,0.1,0.3,500,42,2000,4242,0.03,0.36
+LOW_MODERATE,70,95,Medium,0.95,58.2,60.45,2.25,500,42,2000,4242,58.29,62.57
+MODERATE,50,90,High,0.5,100.0,100.0,0.0,500,42,2000,4242,99.81,100.0
+HIGH_RISK,30,80,Very High,0.1,100.0,100.0,0.0,500,42,2000,4242,99.81,100.0

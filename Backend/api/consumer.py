@@ -96,8 +96,8 @@ async def get_consumer_routes(req: ConsumerRoutesRequest) -> list[RouteCandidate
         soh_after = round(ev.soh - soh_loss, 4)
 
         # Probabilistic FMR with scenario simulation
-        # Use per-route seed offset for independence between route evaluations
-        route_seed = random_seed + i
+        # Common Random Numbers are used to reduce Monte Carlo comparison noise between candidate actions.
+        route_seed = random_seed
         fmr_result = compute_probabilistic_fmr(
             soc_after=soc_after,
             soh=soh_after,
@@ -113,6 +113,14 @@ async def get_consumer_routes(req: ConsumerRoutesRequest) -> list[RouteCandidate
         )
 
         ci = fmr_result.confidence_interval
+        fmr_ci_lower = ci.lower if ci else 0.0
+        fmr_ci_upper = ci.upper if ci else 0.0
+
+        from models.constants import EPSILON_FMR
+        epsilon_pct = EPSILON_FMR * 100.0
+        point_estimate_feasible = fmr_result.fmr <= epsilon_pct
+        upper_ci_feasible = fmr_ci_upper <= epsilon_pct
+        ci_crosses_constraint = point_estimate_feasible and not upper_ci_feasible
 
         candidates.append(RouteCandidate(
             id=profile["id"],
@@ -127,9 +135,13 @@ async def get_consumer_routes(req: ConsumerRoutesRequest) -> list[RouteCandidate
             recommended=False,
             is_computed=True,
             soh_after=soh_after,
-            fmr_ci_lower=ci.lower if ci else 0.0,
-            fmr_ci_upper=ci.upper if ci else 0.0,
+            fmr_ci_lower=fmr_ci_lower,
+            fmr_ci_upper=fmr_ci_upper,
             total_scenarios=fmr_result.total_scenarios,
+            point_estimate_feasible=point_estimate_feasible,
+            upper_ci_feasible=upper_ci_feasible,
+            constraint_margin=epsilon_pct - fmr_result.fmr,
+            ci_crosses_constraint=ci_crosses_constraint,
         ))
 
     # Step 11: Optimize — select recommended route using J(a) with constraint

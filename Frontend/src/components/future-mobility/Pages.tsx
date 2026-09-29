@@ -203,7 +203,7 @@ export function HomePage() {
           <p className="mt-8 text-lg leading-8 text-background/60">
             Ablation analysis.
             <br />
-            Calibration.
+            Independent Replication.
             <br />
             Monte Carlo convergence.
           </p>
@@ -569,9 +569,14 @@ export function ConsumerPage() {
             <span>{item.time} min</span>
             <span>₹{item.cost}</span>
             <span>{item.energy} kWh</span>
-            <span className="text-2xl font-light">
-              {item.fmr.toFixed(1)}%
-              <span className="ml-1 text-[9px] text-muted-foreground">FMR</span>
+            <span className="flex flex-col justify-center">
+              <span className="text-2xl font-light">
+                {item.fmr.toFixed(1)}%
+                <span className="ml-1 text-[9px] text-muted-foreground">FMR PT. ESTIMATE</span>
+              </span>
+              <span className="text-[9px] text-muted-foreground mt-1 tracking-widest">
+                CI: {item.fmr_ci_lower?.toFixed(1) ?? '0.0'}% – {item.fmr_ci_upper?.toFixed(1) ?? '0.0'}%
+              </span>
             </span>
           </button>
         ))}
@@ -1467,9 +1472,11 @@ export function ResearchPage() {
             <span className="text-foreground pb-2 border-b-2 border-foreground cursor-pointer">
               Baseline Comparison
             </span>
-            <span className="pb-2 cursor-pointer hover:text-foreground">Calibration</span>
+            <span className="pb-2 cursor-pointer hover:text-foreground">Independent Replication</span>
             <span className="pb-2 cursor-pointer hover:text-foreground">Ablation</span>
+            <span className="pb-2 cursor-pointer hover:text-foreground">Risk Decomposition</span>
             <span className="pb-2 cursor-pointer hover:text-foreground">Sensitivity</span>
+            <span className="pb-2 cursor-pointer hover:text-foreground">Monotonicity</span>
             <span className="pb-2 cursor-pointer hover:text-foreground">Convergence</span>
           </div>
         </div>

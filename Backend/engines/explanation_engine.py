@@ -44,7 +44,13 @@ def generate_explanation(
     energy_diff = round(fastest.energy - recommended.energy, 1)
 
     # Primary reason text shown in the "Why this decision?" paragraph
-    if recommended.id == fastest.id:
+    if recommended.constraint_relaxed:
+        reason_text = (
+            f"Constraint Relaxed. FMR Point Estimate is {recommended.fmr:.1f}%, "
+            f"and FMR CI Upper Bound is {recommended.fmr_ci_upper:.1f}%. "
+            f"Route {recommended.name} is the most balanced fallback option."
+        )
+    elif recommended.id == fastest.id:
         reason_text = (
             f"Route {recommended.name} is the fastest option available. "
             f"It maintains a {recommended.after:.0f}% battery state after the journey "

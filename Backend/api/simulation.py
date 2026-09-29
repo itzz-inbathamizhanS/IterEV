@@ -181,7 +181,7 @@ def _run_method(
         soh_loss=round(chosen["soh_loss"] * 100, 4),  # Convert to basis points
         future_success_rate=chosen["success_rate"],
         constraint_violations=chosen["constraint_violation"],
-    ), chosen["soc_after"]
+    ), chosen["soc_after"], sim_input.soh - chosen["soh_loss"]
 
 
 @router.post("/run", response_model=SimulationResult)
@@ -216,13 +216,15 @@ async def run_simulation(sim_input: SimulationInput) -> SimulationResult:
     comparison = []
     proposed_row = None
     proposed_soc = sim_input.soc_initial
+    proposed_soh = sim_input.soh
 
     for method in methods:
-        row, soc_after = _run_method(method, sim_input, future_trips)
+        row, soc_after, soh_after = _run_method(method, sim_input, future_trips)
         comparison.append(row)
         if method == "PROPOSED":
             proposed_row = row
             proposed_soc = soc_after
+            proposed_soh = soh_after
 
     if proposed_row is None:
         proposed_row = comparison[-1]
@@ -230,7 +232,7 @@ async def run_simulation(sim_input: SimulationInput) -> SimulationResult:
     # Compute FMR confidence interval for the proposed method
     proposed_fmr_result = compute_probabilistic_fmr(
         soc_after=proposed_soc,
-        soh=sim_input.soh,
+        soh=proposed_soh,
         future_trips=future_trips,
         scenario_count=sim_input.scenario_count,
         random_seed=sim_input.random_seed,

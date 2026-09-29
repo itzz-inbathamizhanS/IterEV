@@ -270,13 +270,13 @@ def compute_probabilistic_fmr(
 
     if not future_trips:
         return FeasibilityResult(
-            fmf=99.0, fmr=1.0,
-            risk_timeline=[1.0] * planning_horizon,
+            fmf=100.0, fmr=0.0,
+            risk_timeline=[0.0] * planning_horizon,
             trip_details=[], is_computed=True,
             total_scenarios=scenario_count,
             successful_scenarios=scenario_count,
             failed_scenarios=0,
-            confidence_interval=ConfidenceInterval(lower=0.0, upper=round(2.0 / scenario_count * 100, 4)),
+            confidence_interval=ConfidenceInterval(lower=0.0, upper=0.0, level=CONFIDENCE_LEVEL),
             random_seed=random_seed,
         )
 
@@ -363,38 +363,40 @@ def compute_probabilistic_fmr(
                 
                 # For long trips: check if en-route charging can bridge the gap
                 is_long = adjusted_distance > MAX_SINGLE_CHARGE_KM
-                if np.any(is_long):
-                    # Step 1: trip_energy (already computed)
-                    # Step 2: energy_required_with_reserve
-                    trip_energy_required = trip_energy + (safety_buffer_pct * safe_usable / 100.0)
-                    
-                    # Step 3: energy_available_before_charge
-                    current_energy = (soc_before_trip * safe_usable / 100.0)
-                    
-                    # Step 4: required_charge
-                    required_charge = np.maximum(0.0, trip_energy_required - current_energy)
-                    
-                    # Step 5: maximum_charge (assume 30 min stop)
-                    available_time_hrs = 0.5
-                    maximum_charge = DEFAULT_CHARGER_POWER_KW * available_time_hrs * CHARGING_EFFICIENCY
-                    
-                    # Step 6 & 7: actual_charge
-                    actual_charge = np.where(charger_avail, np.minimum(required_charge, maximum_charge), 0.0)
-                    
-                    # Step 8: Apply actual charge to SOC
-                    soc_gain = (actual_charge / safe_usable) * 100.0
-                    soc = np.minimum(MAX_CHARGING_SOC, soc_before_trip + soc_gain)
-                    
-                    # Step 9: energy_available_after_charge
-                    energy_available_after_charge = (soc * safe_usable / 100.0)
-                    
-                    # Step 10: trip feasible if energy_available >= required
-                    departure_feasible = soc_before_trip >= LONG_TRIP_DEPARTURE_SOC_MIN
-                    long_trip_infeasible = (energy_available_after_charge < trip_energy_required) | ~departure_feasible
-                    
-                    trip_infeasible = np.where(is_long, long_trip_infeasible, soc < trip_soc_req_pct)
-                else:
-                    trip_infeasible = soc < trip_soc_req_pct
+                
+                # Separate en-route charger availability to prevent double-dipping overnight chargers
+                rng_enroute = np.random.RandomState(random_seed + day * 100 + trip_idx)
+                enroute_charger_avail = rng_enroute.rand(N) < charging_availability
+
+                # Step 1: trip_energy (already computed)
+                # Step 2: energy_required_with_reserve
+                trip_energy_required = trip_energy + (safety_buffer_pct * safe_usable / 100.0)
+                
+                # Step 3: energy_available_before_charge
+                current_energy = (soc_before_trip * safe_usable / 100.0)
+                
+                # Step 4: required_charge
+                required_charge = np.maximum(0.0, trip_energy_required - current_energy)
+                
+                # Step 5: maximum_charge (assume 30 min stop)
+                available_time_hrs = 0.5
+                maximum_charge = DEFAULT_CHARGER_POWER_KW * available_time_hrs * CHARGING_EFFICIENCY
+                
+                # Step 6 & 7: actual_charge (applied ONLY if long trip AND en-route charger available)
+                actual_charge = np.where(enroute_charger_avail & is_long, np.minimum(required_charge, maximum_charge), 0.0)
+                
+                # Step 8: Apply actual charge to SOC
+                soc_gain = (actual_charge / safe_usable) * 100.0
+                soc = np.minimum(MAX_CHARGING_SOC, soc_before_trip + soc_gain)
+                
+                # Step 9: energy_available_after_charge
+                energy_available_after_charge = (soc * safe_usable / 100.0)
+                
+                # Step 10: trip feasible if energy_available >= required
+                departure_feasible = soc_before_trip >= LONG_TRIP_DEPARTURE_SOC_MIN
+                long_trip_infeasible = (energy_available_after_charge < trip_energy_required) | ~departure_feasible
+                
+                trip_infeasible = np.where(is_long, long_trip_infeasible, soc < trip_soc_req_pct)
 
                 # Also fail if SOC would drop below minimum operational level (0.0% is minimum operational)
                 # Note: MIN_OPERATIONAL_SOC is usually 0, but this checks hard minimums
@@ -518,6 +520,24 @@ def compute_probabilistic_fmr(
             feasible=(failure_prob < 10.0), # Considered broadly feasible if <10% failure
         ))
 
+    # ─── Failure Taxonomy ───
+    taxonomy = {
+        "Energy Starvation (Healthy Battery)": 0,
+        "Severe Degradation + High Demand": 0,
+        "General Infeasibility": 0
+    }
+    if failed_count > 0:
+        failed_indices = np.where(scenario_failed)[0]
+        for idx in failed_indices:
+            final_soh = soh_arr[idx]
+            avg_demand = float(np.mean(scenarios.demand_multipliers[idx]))
+            if final_soh < 85.0 and avg_demand > 1.1:
+                taxonomy["Severe Degradation + High Demand"] += 1
+            elif final_soh >= 85.0:
+                taxonomy["Energy Starvation (Healthy Battery)"] += 1
+            else:
+                taxonomy["General Infeasibility"] += 1
+
     return FeasibilityResult(
         fmf=fmf_pct,
         fmr=fmr_pct,
@@ -531,6 +551,7 @@ def compute_probabilistic_fmr(
             lower=ci_lower_pct, upper=ci_upper_pct, level=CONFIDENCE_LEVEL,
         ),
         random_seed=random_seed,
+        failure_taxonomy=taxonomy,
     )
 
 def _wilson_ci(

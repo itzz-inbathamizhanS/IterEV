@@ -1,6 +1,6 @@
 {
   "name": "soh_sensitivity",
-  "scenario_count": 5000,
+  "scenario_count": 500,
   "random_seed": 42,
   "soc_initial": 78.0,
   "soh": 94.0,
@@ -15,7 +15,7 @@
   "lambda_battery": 0.3,
   "mu_fmr": 0.5,
   "epsilon_fmr": 0.1,
-  "timestamp": "2026-09-30T00:50:45.930072",
+  "timestamp": "2026-09-30T01:21:18.565549",
   "rows": 28,
   "columns": [
     "method",

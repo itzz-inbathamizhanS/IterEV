@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-09-30T01:21:19.409092",
+  "execution_mode": "QUICK",
+  "random_seed": 42,
+  "experiments_run": [
+    "baseline_comparison",
+    "soc_sensitivity",
+    "soh_sensitivity",
+    "temperature_sensitivity",
+    "demand_sensitivity",
+    "charging_availability_sensitivity",
+    "planning_horizon_sensitivity",
+    "uncertainty_sensitivity",
+    "ablation",
+    "independent_replication",
+    "mc_convergence",
+    "failure_taxonomy"
+  ],
+  "hardware_time_s": 1.293,
+  "dependency_versions": {
+    "numpy": "2.5.2",
+    "pandas": "3.0.5"
+  }
+}

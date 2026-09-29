@@ -106,13 +106,13 @@ def plot_ablation():
     print("  ✓ ablation.png")
 
 
-def plot_calibration():
-    df = _load("calibration")
+def plot_independent_replication():
+    df = _load("independent_replication")
     if df is None:
         return
     fig, ax = plt.subplots(figsize=(7, 6))
     max_val = max(df["predicted_fmr"].max(), df["observed_failure_rate"].max(), 10)
-    ax.plot([0, max_val], [0, max_val], "k--", alpha=0.4, label="Perfect calibration")
+    ax.plot([0, max_val], [0, max_val], "k--", alpha=0.4, label="Perfect replication")
     ax.scatter(df["predicted_fmr"], df["observed_failure_rate"],
                c="#9b59b6", s=80, zorder=5, edgecolors="white")
     for _, row in df.iterrows():
@@ -120,12 +120,12 @@ def plot_calibration():
                     textcoords="offset points", xytext=(5, 5), fontsize=8)
     ax.set_xlabel("Predicted FMR (%)")
     ax.set_ylabel("Observed Failure Rate (%)")
-    ax.set_title("FMR Calibration / Reliability", fontweight="bold")
+    ax.set_title("FMR Independent Replication / Reliability", fontweight="bold")
     ax.legend()
     fig.tight_layout()
-    fig.savefig(FIGURES_DIR / "calibration.png", dpi=150, bbox_inches="tight")
+    fig.savefig(FIGURES_DIR / "independent_replication.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("  ✓ calibration.png")
+    print("  ✓ independent_replication.png")
 
 
 def plot_mc_convergence():
@@ -203,7 +203,7 @@ def generate_all():
         print("  ✓ uncertainty_sensitivity.png")
 
     plot_ablation()
-    plot_calibration()
+    plot_independent_replication()
     plot_mc_convergence()
 
     print(f"\nFigures saved to: {FIGURES_DIR}")

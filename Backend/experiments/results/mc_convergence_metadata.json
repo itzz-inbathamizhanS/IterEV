@@ -1,0 +1,24 @@
+{
+  "seed": 42,
+  "sample_sizes": [
+    100,
+    500,
+    1000
+  ],
+  "tolerance_pct": 0.5,
+  "timestamp": "2026-09-30T01:21:19.396139",
+  "rows": 3,
+  "columns": [
+    "N",
+    "fmr",
+    "fmr_ci_lower",
+    "fmr_ci_upper",
+    "absolute_ci_width",
+    "relative_ci_width",
+    "absolute_difference_from_ref",
+    "converged",
+    "failures",
+    "computation_time_s"
+  ],
+  "model_version": "2.0.0-research"
+}
