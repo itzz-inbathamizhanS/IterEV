@@ -330,7 +330,7 @@ def compute_probabilistic_fmr(
         demand_mult = scenarios.demand_multipliers[:, day_col]
 
         effective_temp = temperature + temp_offset
-        temp_energy_factor = 1.0 + (effective_temp - BASELINE_TEMP_C) * TEMP_SENSITIVITY_PER_DEGREE
+        temp_energy_factor = 1.0 + np.abs(effective_temp - BASELINE_TEMP_C) * TEMP_SENSITIVITY_PER_DEGREE
         soh_energy_factor = 1.0 + np.maximum(0.0, BASELINE_SOH - soh_arr) * SOH_ENERGY_FACTOR_PER_POINT
 
         # Combined energy adjustment factor for this day
@@ -396,8 +396,7 @@ def compute_probabilistic_fmr(
                 # ── STATE CHANGE: subtract trip energy from SOC ──
                 # Even for failed scenarios, consume what's available (for diagnostics)
                 soc_before_trip = soc.copy()
-                energy_consumed_pct = (trip_energy / safe_usable) * 100.0
-                soc = np.maximum(0.0, soc - energy_consumed_pct)
+                soc = np.maximum(0.0, soc - trip_soc_pct)
 
                 # ── SOH degradation from trip ──
                 if abl.use_battery_degradation:
@@ -466,15 +465,35 @@ def compute_probabilistic_fmr(
     ci_lower_pct = round(ci_lower * 100.0, 2)
     ci_upper_pct = round(ci_upper * 100.0, 2)
 
-    # ─── Per-Trip Details (deterministic, for display) ──────────────────
-    _, _, trip_details = compute_fmf(
-        soc_after, soh, future_trips,
-        capacity_kwh, efficiency_km_kwh, safety_buffer_pct,
-    )
-    for i, detail in enumerate(trip_details):
-        if i < len(trip_feasible_counts):
-            scenario_rate = trip_feasible_counts[i] / N * 100.0
-            detail.margin = round(scenario_rate - 50.0, 1)
+    # ─── Per-Trip Details (Probabilistic, for display) ──────────────────
+    trip_details = []
+    for i, trip in enumerate(future_trips):
+        day_idx = _parse_day_index(trip.day)
+        scenario_rate = (trip_feasible_counts[i] / N) * 100.0 if N > 0 else 0.0
+        
+        # Calculate mean SOC available for this trip across all scenarios
+        if day_idx < soc_by_day.shape[1]:
+            mean_soc_avail = float(np.mean(soc_by_day[:, day_idx]))
+        else:
+            mean_soc_avail = float(np.mean(soc_by_day[:, -1]))
+            
+        # Approximate required SOC based on baseline efficiency and mean SOH
+        mean_soh = float(np.mean(soh_arr))
+        approx_soc_req = _soc_required_for_trip(
+            trip.distance_km, mean_soh, capacity_kwh, efficiency_km_kwh, safety_buffer_pct
+        )
+        
+        trip_details.append(TripFeasibilityDetail(
+            trip_id=trip.id,
+            destination=trip.destination,
+            distance_km=trip.distance_km,
+            priority=trip.priority,
+            day_index=day_idx,
+            soc_required=approx_soc_req,
+            soc_available=round(mean_soc_avail, 1),
+            margin=round(mean_soc_avail - approx_soc_req, 1),
+            feasible=(scenario_rate > 90.0), # Considered feasible if >90% scenarios succeed
+        ))
 
     # ─── Risk Timeline ──────────────────────────────────────────────────
     risk_timeline = _compute_risk_timeline(
@@ -551,12 +570,9 @@ def _compute_risk_timeline(
             if trip_day >= soc_by_day.shape[1]:
                 continue
             soc_avail = soc_by_day[:, trip_day]
-            # Use mean SOH for timeline (approximate)
-            mean_soh = float(np.mean(soh_final))
-            usable_kwh = capacity_kwh * (mean_soh / 100.0)
-            if usable_kwh <= 0:
-                failed_in_day[:] = True
-                continue
+            # Use per-scenario SOH for timeline
+            usable_kwh = capacity_kwh * (soh_final / 100.0)
+            usable_kwh = np.maximum(usable_kwh, 0.01)
 
             day_col = min(trip_day, scenarios.demand_multipliers.shape[1] - 1)
             adjusted_dist = trip.distance_km * scenarios.demand_multipliers[:, day_col]

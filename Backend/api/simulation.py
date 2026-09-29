@@ -57,7 +57,7 @@ def _build_future_trips(
 
     # Base future trips: long-distance Chennai + medium-distance Bangalore
     base_trips = [
-        {"day": "TOMORROW", "dest": "Chennai", "dist": 500.0, "priority": "CRITICAL"},
+        {"day": "TOMORROW", "dest": "Trichy", "dist": 300.0, "priority": "CRITICAL"},
         {"day": f"DAY {min(horizon, 5)}", "dest": "Bangalore", "dist": 330.0, "priority": "HIGH"},
     ]
 
@@ -160,6 +160,8 @@ def _run_method(
     else:  # PROPOSED — full J(a) optimizer
         max_time = max(r["time"] for r in route_results)
         min_time = min(r["time"] for r in route_results)
+        max_cost = max(r["cost"] for r in route_results)
+        min_cost = min(r["cost"] for r in route_results)
         max_fmr = max(r["fmr"] for r in route_results)
         min_fmr = min(r["fmr"] for r in route_results)
         max_soc = max(r["soc_after"] for r in route_results)
@@ -167,13 +169,18 @@ def _run_method(
 
         def J(r: dict) -> float:
             t_range = max(max_time - min_time, 1)
+            c_range = max(max_cost - min_cost, 1)
             fmr_range = max(max_fmr - min_fmr, 0.001)
             soc_range = max(max_soc - min_soc, 0.001)
+            
             t_norm = (r["time"] - min_time) / t_range
+            c_norm = (r["cost"] - min_cost) / c_range
+            current_cost = 0.5 * t_norm + 0.5 * c_norm
+            
             fmr_norm = (r["fmr"] - min_fmr) / fmr_range
             soc_norm = (r["soc_after"] - min_soc) / soc_range
             battery_consequence = 1.0 - soc_norm
-            return t_norm * 0.5 + battery_consequence * LAMBDA_BATTERY + fmr_norm * MU_FMR
+            return current_cost + battery_consequence * LAMBDA_BATTERY + fmr_norm * MU_FMR
 
         # Filter feasible routes first
         feasible = [r for r in route_results if (r["fmr"] / 100.0) <= EPSILON_FMR]

@@ -16,7 +16,7 @@ for r in routes_raw:
 
 # --- Test 2: FMF with realistic future trips ---
 trips = [
-    FutureTrip(id="1", day="TOMORROW",  origin="Coimbatore", destination="Chennai",   distance_km=500, priority="CRITICAL"),
+    FutureTrip(id="1", day="TOMORROW",  origin="Coimbatore", destination="Trichy",   distance_km=300, priority="CRITICAL"),
     FutureTrip(id="2", day="DAY 5",     origin="Coimbatore", destination="Bangalore", distance_km=330, priority="HIGH"),
 ]
 
@@ -36,7 +36,7 @@ for c in candidates:
     print(f"  {c.name}: FMF={c.feasibility}%, FMR={c.fmr}%, SOC_after={c.after}%")
 
 # --- Test 3: Optimizer ---
-rec_id, scores = select_recommended(candidates)
+rec_id, scores, status = select_recommended(candidates)
 print(f"\nOptimizer selected: {rec_id}")
 for s in scores:
     print(f"  {s.route_name}: J={s.total_J:.4f}  feasible={s.feasible}")

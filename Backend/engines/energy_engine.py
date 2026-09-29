@@ -50,7 +50,7 @@ def predict_energy(
 
     # Temperature multiplier — both hot and cold reduce efficiency
     # Li-ion batteries degrade faster and have higher internal resistance outside 20-35°C
-    temp_delta = temperature - BASELINE_TEMP_C
+    temp_delta = abs(temperature - BASELINE_TEMP_C)
     f_temp = 1.0 + temp_delta * TEMP_SENSITIVITY_PER_DEGREE
 
     # SOH degradation factor — reduced chemical capacity means lower round-trip efficiency

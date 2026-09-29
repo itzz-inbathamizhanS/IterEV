@@ -127,6 +127,8 @@ def run_baseline(
     elif method == "ITEREV":
         max_time = max(r["time"] for r in route_data)
         min_time = min(r["time"] for r in route_data)
+        max_cost = max(r["cost"] for r in route_data)
+        min_cost = min(r["cost"] for r in route_data)
         max_fmr = max(r["fmr_prob"] for r in route_data)
         min_fmr = min(r["fmr_prob"] for r in route_data)
         max_soc = max(r["soc_after"] for r in route_data)
@@ -137,10 +139,13 @@ def run_baseline(
 
         def J(r):
             t_n = _norm(r["time"], min_time, max_time)
+            c_n = _norm(r["cost"], min_cost, max_cost)
+            current_cost = 0.5 * t_n + 0.5 * c_n
+            
             fmr_n = _norm(r["fmr_prob"], min_fmr, max_fmr)
             soc_n = _norm(r["soc_after"], min_soc, max_soc)
             bat = 1.0 - soc_n
-            return t_n * 0.5 + bat * config.lambda_battery + fmr_n * config.mu_fmr
+            return current_cost + bat * config.lambda_battery + fmr_n * config.mu_fmr
 
         feasible = [r for r in route_data if r["constraint_feasible"]]
         candidates = feasible if feasible else route_data
@@ -188,47 +193,14 @@ def run_independent_validation(
     future_trips = build_standard_trips(demand_mult, config.planning_horizon)
 
     # First: select route using ESTIMATION seed
-    route_data = []
-    for profile in ROUTE_PROFILES:
-        energy = predict_energy(
-            profile["base_energy_kwh"],
-            traffic=config.traffic,
-            temperature=config.temperature,
-            soh=config.soh,
-        )
-        soc_after = compute_soc_after(
-            config.soc_initial, energy, config.soh, config.capacity_kwh
-        )
-        soh_loss = compute_soh_degradation(
-            energy_throughput_kwh=energy,
-            temperature=config.temperature,
-            soc_start=config.soc_initial,
-            soc_end=soc_after,
-            capacity_kwh=config.capacity_kwh,
-            soh=config.soh,
-        )
-        route_data.append({
-            "soc_after": soc_after,
-            "soh_after": config.soh - soh_loss,
-            "energy": energy,
-            "name": profile["name"],
-            "time": round(profile["base_time_min"] * profile["time_traffic_mult"][config.traffic]),
-        })
-
-    # Select route based on method (simplified — use BATTERY_CARE for ITEREV)
-    if method == "FASTEST":
-        chosen = min(route_data, key=lambda r: r["time"])
-    elif method == "ENERGY_MIN":
-        chosen = min(route_data, key=lambda r: r["energy"])
-    elif method == "BATTERY_AWARE":
-        chosen = max(route_data, key=lambda r: r["soc_after"])
-    else:  # ITEREV
-        chosen = max(route_data, key=lambda r: r["soc_after"])
+    baseline_result = run_baseline(method, config)
+    chosen_soc_after = baseline_result["soc_after"]
+    chosen_soh_after = config.soh - baseline_result["soh_loss"]
 
     # Second: run VALIDATION simulation with DIFFERENT seed
     val_result = compute_probabilistic_fmr(
-        soc_after=chosen["soc_after"],
-        soh=chosen["soh_after"],
+        soc_after=chosen_soc_after,
+        soh=chosen_soh_after,
         future_trips=future_trips,
         capacity_kwh=config.capacity_kwh,
         efficiency_km_kwh=config.efficiency,
@@ -243,8 +215,8 @@ def run_independent_validation(
     )
 
     return {
-        "soc_after": chosen["soc_after"],
-        "soh_after": chosen["soh_after"],
+        "soc_after": chosen_soc_after,
+        "soh_after": chosen_soh_after,
         "observed_failure_rate": val_result.fmr,
         "observed_failures": val_result.failed_scenarios,
         "validation_scenarios": val_result.total_scenarios,

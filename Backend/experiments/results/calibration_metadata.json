@@ -1,9 +1,9 @@
 {
   "estimation_seed": 42,
   "validation_seed": 4242,
-  "estimation_N": 500,
-  "validation_N": 2000,
-  "timestamp": "2026-09-30T00:06:44.222934",
+  "estimation_N": 5000,
+  "validation_N": 20000,
+  "timestamp": "2026-09-30T00:26:52.710801",
   "rows": 8,
   "columns": [
     "soc",

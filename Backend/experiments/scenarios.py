@@ -30,7 +30,7 @@ def build_standard_trips(
     all_trips = [
         FutureTrip(
             id="exp_1", day="TOMORROW", origin="Coimbatore",
-            destination="Chennai", distance_km=round(500.0 * demand_multiplier, 1),
+            destination="Trichy", distance_km=round(300.0 * demand_multiplier, 1),
             priority="CRITICAL",
         ),
         FutureTrip(

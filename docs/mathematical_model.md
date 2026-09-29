@@ -19,7 +19,7 @@ E(r) = E_base(r) × f_traffic × f_temperature × f_SOH × ε_energy
 ```
 
 - `f_traffic = TRAFFIC_FACTORS[traffic]` — {Low: 0.88, Medium: 1.00, High: 1.20}
-- `f_temperature = 1.0 + (T - 29°C) × 0.008`
+- `f_temperature = 1.0 + |T - 29°C| × 0.008`
 - `f_SOH = 1.0 + max(0, 94 - SOH) × 0.002`
 - `ε_energy ~ Normal(1.0, σ)` — prediction uncertainty
 
@@ -118,8 +118,8 @@ CI = [center - spread, center + spread]
 ## 6. Optimization
 
 ```
-min_a J(a) = 0.5·Cost_norm(a) + 0.30·Battery_norm(a) + 0.50·FMR_norm(a)
-subject to: FMR(a) ≤ 0.10
+min_a J(a) = Cost_norm(a) + 0.30·Battery_norm(a) + 0.50·FMR_norm(a)
+Cost_norm(a) = 0.5·time_norm + 0.5·monetary_cost_norm
 ```
 
 All objectives min-max normalized to [0, 1].
