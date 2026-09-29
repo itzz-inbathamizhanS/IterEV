@@ -30,6 +30,7 @@ import {
   PageTitle,
   VehicleSilhouette,
 } from "./Visuals";
+import { ResearchTabs } from "./ResearchTabs";
 
 const section = "px-5 py-20 sm:px-10 sm:py-28 lg:px-16";
 const ruleTitle = "text-[clamp(2.5rem,6vw,6.6rem)] font-light uppercase leading-[.92]";
@@ -575,7 +576,8 @@ export function ConsumerPage() {
                 <span className="ml-1 text-[9px] text-muted-foreground">FMR PT. ESTIMATE</span>
               </span>
               <span className="text-[9px] text-muted-foreground mt-1 tracking-widest">
-                CI: {item.fmr_ci_lower?.toFixed(1) ?? '0.0'}% – {item.fmr_ci_upper?.toFixed(1) ?? '0.0'}%
+                CI: {item.fmr_ci_lower?.toFixed(1) ?? "0.0"}% –{" "}
+                {item.fmr_ci_upper?.toFixed(1) ?? "0.0"}%
               </span>
             </span>
           </button>
@@ -921,30 +923,40 @@ export function RiskPage() {
     staleTime: 60_000,
   });
 
-  const fmr = feasibility?.fmr ?? 2.6;
-  const fmf = feasibility?.fmf ?? 97.4;
-  const riskTimeline = feasibility?.risk_timeline ?? [2.1, 3.4, 4.1, 3.0, 2.6];
+  const fmr = feasibility?.fmr;
+  const fmf = feasibility?.fmf;
+  const riskTimeline = feasibility?.risk_timeline;
   const isComputed = feasLoaded && (feasibility?.is_computed ?? false);
-  const riskLevel = fmr <= 5 ? "low" : fmr <= 15 ? "moderate" : fmr <= 30 ? "high" : "critical";
+  const riskLevel =
+    fmr === undefined
+      ? "unknown"
+      : fmr <= 5
+        ? "low"
+        : fmr <= 15
+          ? "moderate"
+          : fmr <= 30
+            ? "high"
+            : "critical";
 
   // Get fastest and recommended routes for comparison
-  const fastest = computedRoutes
-    ? computedRoutes.reduce((a, b) => (b.time < a.time ? b : a))
-    : null;
+  const fastest =
+    computedRoutes && computedRoutes.length > 0
+      ? computedRoutes.reduce((a, b) => (b.time < a.time ? b : a))
+      : null;
   const recommended = computedRoutes?.find((r) => r.recommended) ?? null;
-  const fastestTime = fastest?.time ?? 42;
-  const fastestRisk = fastest?.fmr ?? 18.2;
-  const recTime = recommended?.time ?? 48;
-  const recRisk = recommended?.fmr ?? 2.6;
+  const fastestTime = fastest?.time;
+  const fastestRisk = fastest?.fmr;
+  const recTime = recommended?.time;
+  const recRisk = recommended?.fmr;
 
   return (
     <>
       <PageTitle lines={["Future", "mobility risk"]} kicker="Risk intelligence" />
       <section className={`${section} grid items-center gap-14 lg:grid-cols-2`}>
         <div>
-          <p className="text-[clamp(8rem,18vw,16rem)] font-light leading-none">
-            {fmr.toFixed(1)}
-            <span className="text-3xl">%</span>
+          <p className="text-[clamp(8rem,18vw,16rem)] font-light leading-none tabular-nums">
+            {fmr !== undefined ? fmr.toFixed(1) : "—"}
+            <span className="text-3xl">{fmr !== undefined ? "%" : ""}</span>
           </p>
           <Eyebrow>Future risk / {riskLevel}</Eyebrow>
           {feasibility?.confidence_interval && (
@@ -961,13 +973,19 @@ export function RiskPage() {
           ) : null}
           {isComputed ? (
             <span className="text-[9px] font-semibold tracking-[.16em] text-success">
-              ● COMPUTED
+              ● LIVE BACKEND
             </span>
           ) : (
-            <DemoLabel />
+            <span className="text-[9px] font-semibold tracking-[.16em] text-muted-foreground">
+              ● BACKEND OFFLINE
+            </span>
           )}
         </div>
-        <MobilityThread score={Math.round(fmf)} />
+        {fmf !== undefined ? (
+          <MobilityThread score={Math.round(fmf)} />
+        ) : (
+          <div className="text-muted-foreground">DATA UNAVAILABLE</div>
+        )}
       </section>
 
       <section className="border-y border-border">
@@ -977,39 +995,53 @@ export function RiskPage() {
             RISK THRESHOLD 10%
           </span>
 
-          <div className="grid grid-cols-5 relative z-10">
-            {riskTimeline.map((v, i) => (
-              <div
-                key={i}
-                className={cn("px-3 py-10 text-center relative", i > 0 && "border-l border-border")}
-              >
+          <div className="grid grid-cols-5 relative z-10 min-h-[300px]">
+            {!riskTimeline || riskTimeline.length === 0 ? (
+              <div className="col-span-5 flex items-center justify-center text-muted-foreground tracking-widest text-sm uppercase">
+                Risk timeline unavailable
+              </div>
+            ) : (
+              riskTimeline.map((v, i) => (
                 <div
+                  key={i}
                   className={cn(
-                    "absolute bottom-full left-1/2 w-1 -translate-x-1/2 transition-all",
-                    v > 10 ? "bg-amber-500" : "bg-foreground",
-                  )}
-                  style={{ height: `${v * 4}px` }}
-                />
-                <p
-                  className={cn(
-                    "text-3xl font-light sm:text-5xl",
-                    v > 10 ? "text-amber-500" : "text-foreground",
+                    "px-3 py-10 text-center relative",
+                    i > 0 && "border-l border-border",
                   )}
                 >
-                  {v}%
-                </p>
-                <Eyebrow className="mt-5">{i === 0 ? "TODAY" : `DAY ${i + 1}`}</Eyebrow>
-                <p className="mt-2 text-[9px] text-muted-foreground uppercase tracking-widest text-center">
-                  Cumulative Risk
-                </p>
-              </div>
-            ))}
+                  <div
+                    className={cn(
+                      "absolute bottom-full left-1/2 w-1 -translate-x-1/2 transition-all",
+                      v > 10 ? "bg-amber-500" : "bg-foreground",
+                    )}
+                    style={{ height: `${Math.min(v * 3, 200)}px` }}
+                  />
+                  <p
+                    className={cn(
+                      "text-3xl font-light sm:text-5xl tabular-nums",
+                      v > 10 ? "text-amber-500" : "text-foreground",
+                    )}
+                  >
+                    {v.toFixed(1)}%
+                  </p>
+                  <Eyebrow className="mt-5">{i === 0 ? "TODAY" : `DAY ${i + 1}`}</Eyebrow>
+                  <p className="mt-2 text-[9px] text-muted-foreground uppercase tracking-widest text-center">
+                    Cumulative Risk
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </section>
 
       <section className={section}>
-        <Eyebrow>Scenario matrix</Eyebrow>
+        <div className="flex items-center justify-between">
+          <Eyebrow>Scenario matrix</Eyebrow>
+          <span className="text-[9px] font-semibold tracking-[.16em] text-muted-foreground">
+            ● STATIC REFERENCE
+          </span>
+        </div>
         <div className="mt-8">
           {scenarios.map((s, i) => (
             <div
@@ -1017,7 +1049,7 @@ export function RiskPage() {
               className="grid grid-cols-[1fr_auto_auto] items-center border-t border-border py-5"
             >
               <span className="text-xs font-semibold tracking-[.14em]">{s.name}</span>
-              <span className="mr-8 text-3xl font-light">{s.risk}%</span>
+              <span className="mr-8 text-3xl font-light tabular-nums">{s.risk}%</span>
               <span
                 className={cn(
                   "h-6 w-1",
@@ -1030,42 +1062,52 @@ export function RiskPage() {
       </section>
 
       <section className={`${section} bg-card`}>
-        <div className="grid items-center gap-10 lg:grid-cols-[1fr_auto_1fr]">
-          <div>
-            <Eyebrow>Original decision</Eyebrow>
-            <p className="mt-8 text-7xl font-light">
-              {fastestTime} <span className="text-lg">MIN</span>
-            </p>
-            <p className="mt-4">
-              Future risk <b className="text-critical">{fastestRisk}%</b>
-            </p>
+        {!fastestTime || !recTime ? (
+          <div className="flex items-center justify-center min-h-[200px] text-muted-foreground tracking-widest text-sm uppercase">
+            ROUTE DATA UNAVAILABLE
           </div>
-          <ArrowDown className="size-8 lg:-rotate-90" />
-          <div>
-            <Eyebrow>Recommended decision</Eyebrow>
-            <p className="mt-8 text-7xl font-light">
-              {recTime} <span className="text-lg">MIN</span>
-            </p>
-            <p className="mt-4">
-              Future risk <b className="text-success">{recRisk}%</b>
-            </p>
-          </div>
-        </div>
-        <div className="mt-20 grid gap-5 border-t border-border pt-8 lg:grid-cols-[.3fr_1fr]">
-          <h3 className="text-4xl font-light">WHY?</h3>
-          <p className="max-w-3xl text-2xl font-light leading-10">
-            {recommended?.explanation ??
-              "The recommended decision slightly increases current travel time but substantially reduces predicted future mobility risk."}
-          </p>
-        </div>
-        {isComputed ? (
-          <span className="mt-6 text-[9px] font-semibold tracking-[.16em] text-success">
-            ● LIVE RESULT
-          </span>
         ) : (
-          <div className="mt-6">
-            <DemoLabel />
-          </div>
+          <>
+            <div className="grid items-center gap-10 lg:grid-cols-[1fr_auto_1fr]">
+              <div>
+                <Eyebrow>Original decision</Eyebrow>
+                <p className="mt-8 text-7xl font-light tabular-nums">
+                  {fastestTime} <span className="text-lg">MIN</span>
+                </p>
+                <p className="mt-4">
+                  Future risk{" "}
+                  <b className="text-critical tabular-nums">{fastestRisk?.toFixed(1) ?? "—"}%</b>
+                </p>
+              </div>
+              <ArrowDown className="size-8 lg:-rotate-90" />
+              <div>
+                <Eyebrow>Recommended decision</Eyebrow>
+                <p className="mt-8 text-7xl font-light tabular-nums">
+                  {recTime} <span className="text-lg">MIN</span>
+                </p>
+                <p className="mt-4">
+                  Future risk{" "}
+                  <b className="text-success tabular-nums">{recRisk?.toFixed(1) ?? "—"}%</b>
+                </p>
+              </div>
+            </div>
+            <div className="mt-20 grid gap-5 border-t border-border pt-8 lg:grid-cols-[.3fr_1fr]">
+              <h3 className="text-4xl font-light">WHY?</h3>
+              <p className="max-w-3xl text-2xl font-light leading-10">
+                {recommended?.explanation ??
+                  "The recommended decision slightly increases current travel time but substantially reduces predicted future mobility risk."}
+              </p>
+            </div>
+            {isComputed ? (
+              <span className="mt-6 text-[9px] font-semibold tracking-[.16em] text-success inline-block">
+                ● LIVE RESULT
+              </span>
+            ) : (
+              <span className="mt-6 text-[9px] font-semibold tracking-[.16em] text-muted-foreground inline-block">
+                ● BACKEND OFFLINE
+              </span>
+            )}
+          </>
         )}
       </section>
 
@@ -1462,22 +1504,35 @@ export function ResearchPage() {
         </div>
       </section>
 
-      {/* Validation Results Console */}
       <section className={section}>
         <div className="flex justify-between items-center mb-8">
           <Eyebrow>Validation Results</Eyebrow>
-          <DemoLabel>DEMO DATA — AWAITING PIPELINE EXPORT</DemoLabel>
+          <span className="text-[9px] font-semibold tracking-[.16em] text-success">
+            ● EXPERIMENT RESULT
+          </span>
         </div>
 
         <div className="mt-8 overflow-x-auto pb-4">
           <div className="flex gap-4 min-w-[600px] text-xs font-semibold tracking-[.15em] text-muted-foreground uppercase">
-            {["Baseline Comparison", "Independent Replication", "Ablation", "Risk Decomposition", "Sensitivity", "Monotonicity", "Convergence"].map((tab) => (
+            {[
+              "Baseline Comparison",
+              "Independent Replication",
+              "Ablation",
+              "Risk Decomposition",
+              "Sensitivity",
+              "Monotonicity",
+              "Convergence",
+              "Failure Taxonomy",
+              "Trajectories",
+            ].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={cn(
                   "pb-2 transition-colors",
-                  activeTab === tab ? "text-foreground border-b-2 border-foreground" : "hover:text-foreground cursor-pointer"
+                  activeTab === tab
+                    ? "text-foreground border-b-2 border-foreground"
+                    : "hover:text-foreground cursor-pointer",
                 )}
               >
                 {tab}
@@ -1485,119 +1540,9 @@ export function ResearchPage() {
             ))}
           </div>
         </div>
-
-        {activeTab === "Baseline Comparison" && (
-          <div className="mt-12 animate-in fade-in duration-500">
-            <h3 className="text-2xl font-light mb-6">Constraint Feasible Scenario</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] border-collapse text-left">
-                <thead>
-                  <tr>
-                    {["METHOD", "TIME", "ENERGY", "FMR", "STATUS"].map((h) => (
-                      <th
-                        key={h}
-                        className="border-y border-border py-4 text-[9px] tracking-[.14em] text-muted-foreground uppercase"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="hover:bg-card transition-colors">
-                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                      FASTEST
-                    </td>
-                    <td className="border-b border-border py-5 text-sm">31 min</td>
-                    <td className="border-b border-border py-5 text-sm">14.2 kWh</td>
-                    <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
-                    <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
-                      FEASIBLE
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-card transition-colors">
-                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                      ENERGY_MIN
-                    </td>
-                    <td className="border-b border-border py-5 text-sm">36 min</td>
-                    <td className="border-b border-border py-5 text-sm">12.9 kWh</td>
-                    <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
-                    <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
-                      FEASIBLE
-                    </td>
-                  </tr>
-                  <tr className="bg-card">
-                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                      ITEREV
-                    </td>
-                    <td className="border-b border-border py-5 text-sm">33 min</td>
-                    <td className="border-b border-border py-5 text-sm">13.5 kWh</td>
-                    <td className="border-b border-border py-5 text-sm text-success">0.02%</td>
-                    <td className="border-b border-border py-5 text-xs tracking-widest text-muted-foreground">
-                      FEASIBLE
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <h3 className="text-2xl font-light mt-16 mb-6">Stress Scenario</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] border-collapse text-left">
-                <thead>
-                  <tr>
-                    {["METHOD", "TIME", "ENERGY", "FMR", "STATUS"].map((h) => (
-                      <th
-                        key={h}
-                        className="border-y border-border py-4 text-[9px] tracking-[.14em] text-muted-foreground uppercase"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="hover:bg-card transition-colors">
-                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                      FASTEST
-                    </td>
-                    <td className="border-b border-border py-5 text-sm">31 min</td>
-                    <td className="border-b border-border py-5 text-sm">14.2 kWh</td>
-                    <td className="border-b border-border py-5 text-sm text-amber-500">43.1%</td>
-                    <td className="border-b border-border py-5 text-xs tracking-widest text-amber-500">
-                      NO FEASIBLE ACTION
-                    </td>
-                  </tr>
-                  <tr className="bg-card">
-                    <td className="border-b border-border py-5 text-xs font-semibold tracking-[.12em]">
-                      ITEREV
-                    </td>
-                    <td className="border-b border-border py-5 text-sm">36 min</td>
-                    <td className="border-b border-border py-5 text-sm">12.9 kWh</td>
-                    <td className="border-b border-border py-5 text-sm text-amber-500">42.2%</td>
-                    <td className="border-b border-border py-5 text-xs tracking-widest text-amber-500">
-                      NO FEASIBLE ACTION
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab !== "Baseline Comparison" && (
-          <div className="mt-12 p-12 border border-border bg-card flex flex-col items-center justify-center min-h-[400px] text-center animate-in fade-in duration-500">
-            <Eyebrow className="mb-4">Data pipeline sync required</Eyebrow>
-            <h3 className="text-3xl font-light mb-6 uppercase tracking-wider">{activeTab}</h3>
-            <p className="text-muted-foreground max-w-lg leading-relaxed text-sm">
-              The frontend requires the latest JSON manifest from the Python backend to render the 
-              {activeTab.toLowerCase()} visualization.
-              <br /><br />
-              Run the full experiment suite via CLI: <br />
-              <code className="text-xs bg-background px-2 py-1 mt-4 inline-block tracking-widest border border-border">python -m experiments.runner</code>
-            </p>
-          </div>
-        )}
+        <div className="mt-8 animate-in fade-in duration-500">
+          <ResearchTabs activeTab={activeTab} />
+        </div>
       </section>
 
       <section className={`${section} grid gap-12 lg:grid-cols-[.4fr_1fr] border-t border-border`}>

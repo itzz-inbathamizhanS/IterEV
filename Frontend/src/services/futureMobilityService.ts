@@ -74,23 +74,7 @@ function localFeasibility(req: FeasibilityRequest): FeasibilityResult {
   const fmf = wTotal > 0 ? +((wFeasible / wTotal) * 100).toFixed(1) : 99.0;
   const fmr = +(100 - fmf).toFixed(1);
 
-  // 5-day risk timeline: project SOC declining 9%/day
-  const riskTimeline = Array.from({ length: 5 }, (_, i) => {
-    const projSoc = Math.max(0, soc * Math.pow(0.91, i));
-    const fmfDay =
-      req.futureTrips.length === 0
-        ? 99.0
-        : (req.futureTrips.filter((t) => {
-            const usableLocal = capacity_kwh * (soh / 100);
-            const socReq = Math.min(95, (t.distance_km / 6.0 / usableLocal) * 100 + 10);
-            return projSoc >= socReq;
-          }).length /
-            req.futureTrips.length) *
-          100;
-    return +(100 - fmfDay).toFixed(1);
-  });
-
-  return { fmf, fmr, risk_timeline: riskTimeline, trip_details: details, is_computed: false };
+  return { fmf, fmr, risk_timeline: [] as number[], trip_details: details, is_computed: false };
 }
 
 export const futureMobilityService = {

@@ -91,19 +91,8 @@ function localFallback(input: SimulationInput): SimulationResult {
     travelTime: Math.round(44 + LEVEL[input.traffic]! * 7 + (input.mode === "Fleet" ? 3 : 0)),
     riskRange: 1.2 + LEVEL[input.uncertainty]! * 2.3,
   };
-  // Approximate baseline comparison (local only, clearly demo)
-  const comparison: MethodComparisonRow[] = [
-    { method: "FASTEST", travelTime: 42, energy: 14.8, feasibility: 81.8, risk: 18.2 },
-    { method: "ENERGY AWARE", travelTime: 51, energy: 12.9, feasibility: 91.2, risk: 8.8 },
-    { method: "BATTERY AWARE", travelTime: 55, energy: 13.2, feasibility: 95.1, risk: 4.9 },
-    {
-      method: "PROPOSED",
-      travelTime: primary.travelTime,
-      energy: primary.energy,
-      feasibility: primary.feasibility,
-      risk: primary.risk,
-    },
-  ];
+  // comparison is empty in fallback to prevent displaying fake research data
+  const comparison: MethodComparisonRow[] = [];
   return { primary, comparison, is_computed: false };
 }
 
