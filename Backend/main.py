@@ -18,18 +18,19 @@ from api.fleet import router as fleet_router
 from api.simulation import router as simulation_router
 
 app = FastAPI(
-    title="Future Mobility API",
+    title="IterEV Research API",
     description=(
-        "Research prototype backend for Future-Mobility-Aware EV Decision System. "
-        "Implements Future Mobility Feasibility (FMF) and Future Mobility Risk (FMR) "
-        "as defined in the research document: Section 13–14."
+        "Research-grade backend for the IterEV Decision System. "
+        "Implements probabilistic Future Mobility Risk (FMR) via Monte Carlo "
+        "scenario simulation with uncertainty in energy, traffic, temperature, "
+        "demand, charging availability, and battery degradation."
     ),
-    version="1.0.0-phase1",
+    version="2.0.0-research",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
 )
 
-# CORS — allow the Lovable frontend (Vite dev server and production)
+# CORS — allow the frontend (Vite dev server and production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -37,7 +38,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
-        "https://*.lovable.app",   # Lovable preview deployments
+        "https://*.lovable.app",
         "https://*.lovableproject.com",
     ],
     allow_credentials=True,
@@ -56,9 +57,12 @@ async def health() -> dict:
     """Health check endpoint — used by frontend to detect if backend is running."""
     return {
         "status": "ok",
-        "phase": 1,
-        "description": "Consumer flow active. Fleet and Simulation stubs available.",
-        "engines": ["energy", "battery", "feasibility", "optimizer", "explanation"],
+        "version": "2.0.0-research",
+        "description": "Research-grade IterEV with probabilistic FMR.",
+        "engines": [
+            "energy", "battery", "feasibility", "uncertainty",
+            "charging", "optimizer", "explanation",
+        ],
     }
 
 

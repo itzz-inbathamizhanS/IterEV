@@ -1,0 +1,39 @@
+{
+  "experiment": "demand_sensitivity",
+  "timestamp": "2026-09-29T23:35:45.272415",
+  "config": {
+    "name": "demand_sensitivity",
+    "scenario_count": 500,
+    "random_seed": 42,
+    "soc_initial": 78.0,
+    "soh": 94.0,
+    "temperature": 29.0,
+    "traffic": "Medium",
+    "demand": "Very High",
+    "uncertainty": "Medium",
+    "charging_availability": 0.95,
+    "planning_horizon": 5,
+    "capacity_kwh": 80.0,
+    "efficiency": 6.0,
+    "lambda_battery": 0.3,
+    "mu_fmr": 0.5,
+    "epsilon_fmr": 0.1
+  },
+  "rows": 16,
+  "columns": [
+    "travel_time",
+    "energy_consumption",
+    "monetary_cost",
+    "battery_degradation",
+    "final_soh",
+    "future_success_rate",
+    "fmf",
+    "fmr",
+    "fmr_ci_lower",
+    "fmr_ci_upper",
+    "constraint_violation_rate",
+    "computation_time_s",
+    "method",
+    "demand"
+  ]
+}

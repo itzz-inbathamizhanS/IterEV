@@ -1,0 +1,30 @@
+{
+  "experiment": "calibration",
+  "timestamp": "2026-09-29T23:35:45.837078",
+  "config": {
+    "name": "calibration",
+    "scenario_count": 500,
+    "random_seed": 42,
+    "soc_initial": 90,
+    "soh": 94.0,
+    "temperature": 29.0,
+    "traffic": "Medium",
+    "demand": "Medium",
+    "uncertainty": "Medium",
+    "charging_availability": 0.95,
+    "planning_horizon": 5,
+    "capacity_kwh": 80.0,
+    "efficiency": 6.0,
+    "lambda_battery": 0.3,
+    "mu_fmr": 0.5,
+    "epsilon_fmr": 0.1
+  },
+  "rows": 8,
+  "columns": [
+    "soc",
+    "predicted_fmr",
+    "observed_failure_rate",
+    "calibration_error",
+    "n_simulations"
+  ]
+}

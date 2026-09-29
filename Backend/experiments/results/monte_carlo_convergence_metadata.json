@@ -1,0 +1,32 @@
+{
+  "experiment": "monte_carlo_convergence",
+  "timestamp": "2026-09-29T23:35:45.888714",
+  "config": {
+    "name": "mc_convergence",
+    "scenario_count": 1000,
+    "random_seed": 46,
+    "soc_initial": 78.0,
+    "soh": 94.0,
+    "temperature": 29.0,
+    "traffic": "Medium",
+    "demand": "Medium",
+    "uncertainty": "Medium",
+    "charging_availability": 0.95,
+    "planning_horizon": 5,
+    "capacity_kwh": 80.0,
+    "efficiency": 6.0,
+    "lambda_battery": 0.3,
+    "mu_fmr": 0.5,
+    "epsilon_fmr": 0.1
+  },
+  "rows": 3,
+  "columns": [
+    "sample_size",
+    "fmr_mean",
+    "fmr_std",
+    "fmr_min",
+    "fmr_max",
+    "runtime_mean_s",
+    "runtime_std_s"
+  ]
+}

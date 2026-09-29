@@ -22,6 +22,12 @@ export type FeasibilityResult = {
     feasible: boolean;
   }[];
   is_computed: boolean;
+  // Probabilistic extensions
+  total_scenarios?: number;
+  successful_scenarios?: number;
+  failed_scenarios?: number;
+  confidence_interval?: { lower: number; upper: number; level: number };
+  random_seed?: number;
 };
 
 export type FeasibilityRequest = {

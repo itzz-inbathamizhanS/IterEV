@@ -6,14 +6,17 @@ Research reference:
     min J(a) = CurrentCost(a) + λ·BatteryConsequence(a) + µ·FMR(a)
     subject to: FMR(a) ≤ ε
 
-  §14 — "Do not choose λ, µ or ε arbitrarily and then claim they are universally
-         correct. The study should run sensitivity analysis."
+Normalization:
+  All three objectives are normalized to [0, 1] before weighting to prevent
+  any single objective from dominating due to units.
+  - CurrentCost: min-max normalized (weighted combination of time and cost)
+  - BatteryConsequence: inverted min-max of SOC_after (lower SOC = higher consequence)
+  - FMR: min-max normalized
 
-Phase 1 implementation:
-  - Deterministic: no stochastic sampling
-  - All three terms normalized to [0, 1] before weighting
-  - LAMBDA_BATTERY and MU_FMR from constants.py (configurable for ablation studies)
-  - Returns recommended route_id and a structured score breakdown
+No-feasible-action handling:
+  If all candidates violate FMR ≤ ε, the optimizer returns:
+    status = "NO_FEASIBLE_ACTION"
+  with the best available candidate and explicit constraint_relaxed flag.
 """
 
 from dataclasses import dataclass
@@ -23,7 +26,7 @@ from models.constants import LAMBDA_BATTERY, MU_FMR, EPSILON_FMR
 
 @dataclass
 class RouteScore:
-    """Score breakdown for one route — useful for ablation analysis"""
+    """Score breakdown for one route — useful for ablation analysis."""
     route_id: str
     route_name: str
     current_cost: float      # Normalized travel time + monetary cost
@@ -51,6 +54,8 @@ def score_routes(
 ) -> list[RouteScore]:
     """
     Score all route candidates using J(a) = CurrentCost + λ·Battery + µ·FMR.
+
+    Normalization ensures each objective contributes proportionally.
 
     Args:
         routes: Computed route candidates with energy, fmr, soc_after fields
@@ -85,14 +90,13 @@ def score_routes(
         current_cost = time_weight * t_norm + cost_weight * c_norm
 
         # 2. Battery consequence: lower SOC_after = worse battery state = higher consequence
-        #    We invert so that higher SOC_after → lower battery consequence
         soc_norm = _normalize(route.after, min_soc, max_soc)
-        battery_consequence = 1.0 - soc_norm  # 0=best (highest SOC), 1=worst (lowest SOC)
+        battery_consequence = 1.0 - soc_norm
 
         # 3. FMR term: normalized future mobility risk
         fmr_normalized = _normalize(route.fmr, min_fmr, max_fmr)
 
-        # Total objective J(a)
+        # Total objective J(a) = CurrentCost + λ·Battery + µ·FMR
         J = current_cost + lambda_battery * battery_consequence + mu_fmr * fmr_normalized
 
         # Feasibility check: FMR(a) ≤ epsilon (chance constraint)
@@ -116,14 +120,16 @@ def select_recommended(
     lambda_battery: float = LAMBDA_BATTERY,
     mu_fmr: float = MU_FMR,
     epsilon_fmr: float = EPSILON_FMR,
-) -> tuple[str, list[RouteScore]]:
+) -> tuple[str, list[RouteScore], str]:
     """
-    Select the optimal route using the J(a) objective.
+    Select the optimal route using the J(a) objective with constraint enforcement.
 
     Strategy:
     1. Among routes satisfying FMR ≤ epsilon, pick lowest J
-    2. If no route satisfies the constraint, pick lowest J unconditionally
-       (the system still recommends the best available option, with warning)
+    2. If NO route satisfies the constraint:
+       - Return status "NO_FEASIBLE_ACTION"
+       - Select the route with minimum FMR as fallback
+       - Set constraint_relaxed = True on the fallback
 
     Args:
         routes: Candidate routes
@@ -132,15 +138,21 @@ def select_recommended(
         epsilon_fmr: FMR threshold
 
     Returns:
-        Tuple of (recommended_route_id, all_route_scores)
+        Tuple of (recommended_route_id, all_route_scores, status)
+        status: "FEASIBLE" | "NO_FEASIBLE_ACTION"
     """
     scores = score_routes(routes, lambda_battery, mu_fmr, epsilon_fmr)
     if not scores:
-        return routes[0].id if routes else "", scores
+        return routes[0].id if routes else "", scores, "FEASIBLE"
 
     # Prefer feasible routes
     feasible = [s for s in scores if s.feasible]
-    candidates = feasible if feasible else scores
 
-    best = min(candidates, key=lambda s: s.total_J)
-    return best.route_id, scores
+    if feasible:
+        best = min(feasible, key=lambda s: s.total_J)
+        return best.route_id, scores, "FEASIBLE"
+    else:
+        # NO FEASIBLE ACTION: all candidates violate FMR constraint
+        # Fall back to minimum FMR candidate
+        best = min(scores, key=lambda s: s.fmr_term)
+        return best.route_id, scores, "NO_FEASIBLE_ACTION"

@@ -18,6 +18,10 @@ export type SimulationInput = {
   demand: "Low" | "Medium" | "High";
   charging: "Normal" | "Restricted";
   uncertainty: "Low" | "Medium" | "High";
+  scenario_count?: number;
+  random_seed?: number;
+  charging_availability?: number;
+  soc_initial?: number;
 };
 
 export type SimulationOutput = {
@@ -26,6 +30,10 @@ export type SimulationOutput = {
   energy: number;
   travelTime: number;
   riskRange: number;
+  fmr_ci_lower?: number;
+  fmr_ci_upper?: number;
+  total_scenarios?: number;
+  soh_loss?: number;
 };
 
 export type MethodComparisonRow = {
@@ -34,12 +42,17 @@ export type MethodComparisonRow = {
   energy: number;
   feasibility: number;
   risk: number;
+  soh_loss?: number;
+  future_success_rate?: number;
+  constraint_violations?: number;
 };
 
 export type SimulationResult = {
   primary: SimulationOutput;
   comparison: MethodComparisonRow[];
   is_computed: boolean;
+  random_seed?: number;
+  scenario_count?: number;
 };
 
 const API_BASE = (import.meta as unknown as { env: Record<string, string> }).env

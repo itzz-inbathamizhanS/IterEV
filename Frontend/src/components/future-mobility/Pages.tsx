@@ -65,12 +65,17 @@ export function ConsumerPage() {
   if (!route || !recommendedRoute) return null;
 
   // Build DecisionTrace items from computed or demo data
+  const fmrCiLower = (recommendedRoute as any).fmr_ci_lower;
+  const fmrCiUpper = (recommendedRoute as any).fmr_ci_upper;
+  const totalScenarios = (recommendedRoute as any).total_scenarios;
+  const constraintRelaxed = (recommendedRoute as any).constraint_relaxed;
   const traceItems = [
     { label: "Decision", value: recommendedRoute.name },
     { label: "Reason",   value: "Preserve energy for future mobility" },
     { label: "Battery effect", value: `${recommendedRoute.after}% after today` },
-    { label: "Future effect",  value: `${recommendedRoute.feasibility}% feasible` },
-    { label: "Risk change",    value: recommendedRoute.risk_change ?? "−15.6 points" },
+    { label: "Future risk (FMR)",  value: totalScenarios ? `${recommendedRoute.fmr}% (95% CI: ${fmrCiLower?.toFixed(1)}–${fmrCiUpper?.toFixed(1)}%)` : `${recommendedRoute.fmr}%` },
+    { label: "Scenarios",    value: totalScenarios ? `${totalScenarios.toLocaleString()} Monte Carlo` : "N/A" },
+    { label: "Risk change",    value: recommendedRoute.risk_change ?? "—" },
   ];
 
   return <>
@@ -145,11 +150,11 @@ export function ConsumerPage() {
       {routeData.map((item, index) => (
         <button key={item.id} onClick={() => setSelected(index)}
           className={cn("grid w-full grid-cols-2 gap-y-5 border-t border-border px-5 py-7 text-left transition-colors hover:bg-card sm:grid-cols-[1.5fr_repeat(4,1fr)] sm:px-10 lg:px-16", selected === index && "bg-card")}>
-          <span><b className="text-sm tracking-[.14em]">{item.name}</b>{item.recommended && <span className="ml-3 text-[9px] text-success">RECOMMENDED</span>}</span>
+          <span><b className="text-sm tracking-[.14em]">{item.name}</b>{item.recommended && <span className="ml-3 text-[9px] text-success">RECOMMENDED</span>}{(item as any).constraint_relaxed && <span className="ml-2 text-[9px] text-amber-500">CONSTRAINT RELAXED</span>}</span>
           <span>{item.time} min</span>
           <span>₹{item.cost}</span>
           <span>{item.energy} kWh</span>
-          <span className="text-2xl font-light">{item.feasibility}%</span>
+          <span className="text-2xl font-light">{item.fmr.toFixed(1)}%<span className="ml-1 text-[9px] text-muted-foreground">FMR</span></span>
         </button>
       ))}
     </section>
@@ -252,10 +257,12 @@ export function FuturePage() {
 
     <section className={`${section} grid items-center gap-12 border-y border-border lg:grid-cols-2`}>
       <div>
-        <Eyebrow>Future mobility feasibility</Eyebrow>
-        <p className="mt-7 text-[clamp(6rem,15vw,13rem)] font-light leading-none tabular-nums">{fmf.toFixed(1)}<span className="text-3xl">%</span></p>
-        <p className="mt-8 max-w-xl text-sm leading-6 text-muted-foreground">Estimated probability that future mobility requirements remain feasible after the current decision.</p>
-        {feasLoaded && feasibility?.is_computed ? <span className="text-[9px] font-semibold tracking-[.16em] text-success">● LIVE RESULT</span> : <DemoLabel/>}
+        <Eyebrow>Future mobility risk (FMR)</Eyebrow>
+        <p className="mt-7 text-[clamp(6rem,15vw,13rem)] font-light leading-none tabular-nums">{fmr.toFixed(1)}<span className="text-3xl">%</span></p>
+        {feasibility?.confidence_interval && <p className="mt-2 text-sm text-muted-foreground">95% CI: {feasibility.confidence_interval.lower.toFixed(1)}% – {feasibility.confidence_interval.upper.toFixed(1)}%</p>}
+        {feasibility?.total_scenarios ? <p className="mt-1 text-xs text-muted-foreground">Scenarios: {feasibility.total_scenarios.toLocaleString()} · Failed: {feasibility.failed_scenarios?.toLocaleString()} · Successful: {feasibility.successful_scenarios?.toLocaleString()}</p> : null}
+        <p className="mt-6 max-w-xl text-sm leading-6 text-muted-foreground">Estimated probability that future mobility requirements cannot be satisfied after the current decision. Computed via Monte Carlo scenario simulation.</p>
+        {feasLoaded && feasibility?.is_computed ? <span className="text-[9px] font-semibold tracking-[.16em] text-success">● COMPUTED</span> : <DemoLabel/>}
       </div>
       <CapacityArc current={evState.soc} future={fmf} risk={fmr}/>
     </section>
@@ -318,7 +325,9 @@ export function RiskPage() {
       <div>
         <p className="text-[clamp(8rem,18vw,16rem)] font-light leading-none">{fmr.toFixed(1)}<span className="text-3xl">%</span></p>
         <Eyebrow>Future risk / {riskLevel}</Eyebrow>
-        {isComputed ? <span className="text-[9px] font-semibold tracking-[.16em] text-success">● LIVE RESULT</span> : <DemoLabel/>}
+        {feasibility?.confidence_interval && <p className="mt-2 text-sm text-muted-foreground">95% CI: {feasibility.confidence_interval.lower.toFixed(1)}% – {feasibility.confidence_interval.upper.toFixed(1)}%</p>}
+        {feasibility?.total_scenarios ? <p className="mt-1 text-xs text-muted-foreground">{feasibility.total_scenarios.toLocaleString()} scenarios · Seed: {feasibility.random_seed ?? '—'}</p> : null}
+        {isComputed ? <span className="text-[9px] font-semibold tracking-[.16em] text-success">● COMPUTED</span> : <DemoLabel/>}
       </div>
       <MobilityThread score={Math.round(fmf)}/>
     </section>
@@ -382,7 +391,7 @@ export function RiskPage() {
 }
 
 export function SimulationPage() {
-  const [input, setInput] = useState<SimulationInput>({ mode:"Consumer", horizon:5, soh:94, temperature:29, traffic:"Medium", demand:"Medium", charging:"Normal", uncertainty:"Low" });
+  const [input, setInput] = useState<SimulationInput>({ mode:"Consumer", horizon:5, soh:94, temperature:29, traffic:"Medium", demand:"Medium", charging:"Normal", uncertainty:"Low", scenario_count: 1000, random_seed: 42, charging_availability: 0.95, soc_initial: 78 } as SimulationInput);
   const [running, setRunning] = useState(false);
   const [step, setStep] = useState(7);
   const [liveResult, setLiveResult] = useState<{ primary: { feasibility: number; risk: number; energy: number; travelTime: number; riskRange: number }; comparison: MethodComparisonRow[]; is_computed: boolean } | null>(null);

@@ -1,0 +1,8 @@
+travel_time,energy_consumption,monetary_cost,battery_degradation,final_soh,future_success_rate,fmf,fmr,fmr_ci_lower,fmr_ci_upper,constraint_violation_rate,computation_time_s,variant,route_name
+53,13.1,160,3e-06,99.9997,12.8,12.8,87.2,83.99,89.85,1.0,0.0028,Full IterEV,BATTERY CARE
+42,14.8,185,3e-06,99.9997,8.2,8.2,91.8,89.06,93.9,1.0,0.0033,No Future Risk,FASTEST
+48,13.9,172,3e-06,99.9997,10.8,10.8,89.2,86.17,91.63,1.0,0.0028,No Battery Term,FUTURE READY
+53,13.1,160,3e-06,99.9997,21.4,21.4,78.6,74.79,81.97,1.0,0.0029,No Uncertainty,BATTERY CARE
+53,13.1,160,3e-06,99.9997,12.8,12.8,87.2,83.99,89.85,1.0,0.0036,No Charging Uncertainty,BATTERY CARE
+53,13.1,160,3e-06,99.9997,12.8,12.8,87.2,83.99,89.85,1.0,0.0028,No Demand Variation,BATTERY CARE
+53,13.1,160,2e-06,99.9998,25.0,25.0,75.0,71.02,78.6,1.0,0.004,No SOH Effect,BATTERY CARE
