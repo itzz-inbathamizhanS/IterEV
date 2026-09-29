@@ -596,13 +596,13 @@ def _compute_risk_timeline(
     risk_by_day = []
 
     for day in range(planning_horizon):
-        remaining = [(i, t) for i, t in enumerate(future_trips) if trip_days[i] >= day]
-        if not remaining:
+        trips_up_to_day = [(i, t) for i, t in enumerate(future_trips) if trip_days[i] <= day]
+        if not trips_up_to_day:
             risk_by_day.append(0.0)
             continue
 
-        failed_in_day = np.zeros(N, dtype=bool)
-        for i, trip in remaining:
+        failed_up_to_day = np.zeros(N, dtype=bool)
+        for i, trip in trips_up_to_day:
             trip_day = trip_days[i]
             if trip_day >= soc_by_day.shape[1]:
                 continue
@@ -620,9 +620,9 @@ def _compute_risk_timeline(
                 (energy_needed / usable_kwh) * 100.0 + safety_buffer_pct,
             )
             soc_needed = np.clip(soc_needed, 0.0, 95.0)
-            failed_in_day |= (soc_avail < soc_needed)
+            failed_up_to_day |= (soc_avail < soc_needed)
 
-        fmr_day = np.sum(failed_in_day) / N * 100.0
+        fmr_day = np.sum(failed_up_to_day) / N * 100.0
         risk_by_day.append(round(fmr_day, 1))
 
     return risk_by_day
